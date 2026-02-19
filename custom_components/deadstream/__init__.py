@@ -35,7 +35,7 @@ PLATFORMS: list[Platform] = [
 ]
 
 SERVICE_PLAY_DATE_SCHEMA = vol.Schema({
-    vol.Required("year"): vol.All(int, vol.Range(min=1965, max=1995)),
+    vol.Required("year"): vol.All(int, vol.Range(min=1900)),
     vol.Required("month"): vol.All(int, vol.Range(min=1, max=12)),
     vol.Required("day"): vol.All(int, vol.Range(min=1, max=31)),
 })
