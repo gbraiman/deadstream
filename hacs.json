@@ -1,3 +1,4 @@
 {
-  "name": "Deadstream"
+  "name": "Deadstream",
+  "homeassistant": "2023.6.0"
 }
