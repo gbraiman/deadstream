@@ -15,7 +15,8 @@ from .coordinator import DeadstreamCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-YEARS = [str(y) for y in range(1965, 1996)]
+import datetime
+YEARS = [str(y) for y in range(1965, datetime.date.today().year + 1)]
 MONTHS = [calendar.month_name[m] for m in range(1, 13)]
 DAYS = [str(d) for d in range(1, 32)]
 
