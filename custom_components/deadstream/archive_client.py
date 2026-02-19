@@ -202,8 +202,7 @@ class ArchiveClient:
 
     async def get_available_years(self, collections: list[str]) -> list[int]:
         """Return list of years that have shows."""
-        # GratefulDead ran 1965-1995; expand for other collections
-        return list(range(1965, 1996))
+        return list(range(1965, date.today().year + 1))
 
     async def get_available_dates_for_year_month(
         self,
