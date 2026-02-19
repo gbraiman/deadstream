@@ -1,0 +1,56 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Deadstream",
+        "description": "Stream Grateful Dead concerts from archive.org to your media players.",
+        "data": {
+          "target_player": "Target Media Player",
+          "collections": "Collections",
+          "play_lossless": "Prefer Lossless Audio",
+          "favored_taper": "Favored Taper (optional)"
+        },
+        "data_description": {
+          "target_player": "The Sonos, Chromecast, or other media player to stream to.",
+          "collections": "Which archive.org collections to search.",
+          "play_lossless": "Prefer FLAC/SHN over MP3 when available.",
+          "favored_taper": "Preferred taper name to rank first in results."
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Only one Deadstream instance is supported."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Deadstream Options",
+        "data": {
+          "target_player": "Target Media Player",
+          "collections": "Collections",
+          "play_lossless": "Prefer Lossless Audio",
+          "favored_taper": "Favored Taper"
+        }
+      }
+    }
+  },
+  "services": {
+    "play_date": {
+      "name": "Play Date",
+      "description": "Load and play shows for a specific date."
+    },
+    "next_show": {
+      "name": "Next Show",
+      "description": "Switch to the next available recording."
+    },
+    "prev_show": {
+      "name": "Previous Show",
+      "description": "Switch to the previous available recording."
+    },
+    "random_show": {
+      "name": "Random Show",
+      "description": "Load a random concert."
+    }
+  }
+}
