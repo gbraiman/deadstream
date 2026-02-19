@@ -1,0 +1,46 @@
+play_date:
+  name: Play Date
+  description: Load and play shows for a specific date.
+  fields:
+    year:
+      name: Year
+      description: Concert year (1965-1995).
+      required: true
+      example: 1977
+      selector:
+        number:
+          min: 1965
+          max: 1995
+          mode: box
+    month:
+      name: Month
+      description: Concert month (1-12).
+      required: true
+      example: 5
+      selector:
+        number:
+          min: 1
+          max: 12
+          mode: box
+    day:
+      name: Day
+      description: Concert day (1-31).
+      required: true
+      example: 8
+      selector:
+        number:
+          min: 1
+          max: 31
+          mode: box
+
+next_show:
+  name: Next Show
+  description: Switch to the next available recording for the current date.
+
+prev_show:
+  name: Previous Show
+  description: Switch to the previous available recording for the current date.
+
+random_show:
+  name: Random Show
+  description: Load a random Grateful Dead concert.
