@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import calendar
 import logging
+from datetime import date
 from typing import Any
 
 from homeassistant.components.select import SelectEntity
@@ -16,7 +17,7 @@ from .coordinator import DeadstreamCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-YEARS = [str(y) for y in range(1965, 1996)]
+YEARS = [str(y) for y in range(1965, date.today().year + 1)]
 MONTHS = [calendar.month_name[m] for m in range(1, 13)]
 DAYS = [str(d) for d in range(1, 32)]
 

@@ -49,4 +49,5 @@ AVAILABLE_COLLECTIONS = [
     "JerryGarciaBand",
     "OtherOnes",
     "TheOtherOnes",
+    "Phish",
 ]
