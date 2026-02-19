@@ -42,6 +42,7 @@ SERVICE_PLAY_DATE_SCHEMA = vol.Schema({
 
 
 def _get_coordinator(hass: HomeAssistant) -> DeadstreamCoordinator | None:
+    """Return the first Deadstream coordinator."""
     coordinators = hass.data.get(DOMAIN, {})
     if coordinators:
         return next(iter(coordinators.values()))
@@ -49,6 +50,7 @@ def _get_coordinator(hass: HomeAssistant) -> DeadstreamCoordinator | None:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up Deadstream from a config entry."""
     session = async_get_clientsession(hass)
 
     coordinator = DeadstreamCoordinator(
@@ -74,10 +76,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 def _register_services(hass: HomeAssistant) -> None:
+    """Register Deadstream services."""
+
     async def handle_play_date(call: ServiceCall) -> None:
         coordinator = _get_coordinator(hass)
         if coordinator:
-            await coordinator.async_set_date(call.data["year"], call.data["month"], call.data["day"])
+            await coordinator.async_set_date(
+                call.data["year"], call.data["month"], call.data["day"]
+            )
             await coordinator.async_load_current_show()
             coordinator.is_playing = True
             coordinator.async_update_listeners()
@@ -110,6 +116,7 @@ def _register_services(hass: HomeAssistant) -> None:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
@@ -120,4 +127,5 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Handle options update."""
     await hass.config_entries.async_reload(entry.entry_id)

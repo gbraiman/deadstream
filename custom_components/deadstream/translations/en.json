@@ -9,6 +9,12 @@
           "collections": "Collections",
           "play_lossless": "Prefer Lossless Audio",
           "favored_taper": "Favored Taper (optional)"
+        },
+        "data_description": {
+          "target_player": "The Sonos, Chromecast, or other media player to stream to.",
+          "collections": "Which archive.org collections to search.",
+          "play_lossless": "Prefer FLAC/SHN over MP3 when available.",
+          "favored_taper": "Preferred taper name to rank first in results."
         }
       }
     },
@@ -26,6 +32,41 @@
           "play_lossless": "Prefer Lossless Audio",
           "favored_taper": "Favored Taper"
         }
+      }
+    }
+  },
+  "entity": {
+    "select": {
+      "year": {
+        "name": "Year"
+      },
+      "month": {
+        "name": "Month"
+      },
+      "day": {
+        "name": "Day"
+      },
+      "show": {
+        "name": "Show"
+      }
+    },
+    "sensor": {
+      "venue": {
+        "name": "Venue"
+      },
+      "current_track": {
+        "name": "Current Track"
+      },
+      "show_count": {
+        "name": "Shows Available"
+      },
+      "taper": {
+        "name": "Taper"
+      }
+    },
+    "media_player": {
+      "deadstream": {
+        "name": "Deadstream"
       }
     }
   }
