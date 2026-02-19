@@ -1,0 +1,32 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Deadstream",
+        "description": "Stream Grateful Dead concerts from archive.org to your media players.",
+        "data": {
+          "target_player": "Target Media Player",
+          "collections": "Collections",
+          "play_lossless": "Prefer Lossless Audio",
+          "favored_taper": "Favored Taper (optional)"
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Only one Deadstream instance is supported."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Deadstream Options",
+        "data": {
+          "target_player": "Target Media Player",
+          "collections": "Collections",
+          "play_lossless": "Prefer Lossless Audio",
+          "favored_taper": "Favored Taper"
+        }
+      }
+    }
+  }
+}
