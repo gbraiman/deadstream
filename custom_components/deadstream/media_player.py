@@ -12,11 +12,10 @@ from homeassistant.components.media_player import (
     MediaType,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .archive_client import Show, Track
 from .const import (
     ATTR_SETLIST,
     ATTR_SHOW_DATE,
@@ -25,11 +24,7 @@ from .const import (
     ATTR_TOTAL_TRACKS,
     ATTR_TRACK_NUMBER,
     ATTR_VENUE,
-    CONF_TARGET_PLAYER,
     DOMAIN,
-    SERVICE_NEXT_SHOW,
-    SERVICE_PREV_SHOW,
-    SERVICE_RANDOM_SHOW,
 )
 from .coordinator import DeadstreamCoordinator
 
