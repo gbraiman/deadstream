@@ -114,3 +114,67 @@ cards:
       - entity: sensor.deadstream_current_track
       - entity: sensor.deadstream_taper
       - entity: sensor.deadstream_shows_available
+```
+---
+
+## How It Works
+
+1. You select a year, month, and day using the select entities
+2. Deadstream queries the archive.org API for concert recordings on that date
+3. You choose which recording (taper) to use via the Show selector
+4. Press Load Show to fetch the track list
+5. Press Play on the media player — Deadstream sends the stream URL directly to your target Sonos/Chromecast
+
+The integration acts as a smart source that feeds archive.org stream URLs to your existing media players. Playback, volume, and queue management all happen on the target device.
+
+---
+
+## Services
+
+| Service | Description |
+|---------|-------------|
+| `deadstream.play_date` | Jump to a specific date and play |
+| `deadstream.next_show` | Next recording for current date |
+| `deadstream.prev_show` | Previous recording for current date |
+| `deadstream.random_show` | Load a random concert |
+
+Example — automation for a date
+```yaml
+service: deadstream.play_date
+data:
+  year: 1977
+  month: 5
+  day: 8
+```
+Example — automation triggered by voice
+```yaml
+alias: Play a random Dead show
+trigger:
+  - platform: conversation
+    command: "play a random dead show"
+action:
+  - service: deadstream.random_show
+  - service: media_player.media_play
+    target:
+      entity_id: media_player.deadstream
+```
+## Supported Collections
+
+| Collection | Description |
+|------------|-------------|
+| `GratefulDead` | Main Grateful Dead archive |
+| `PhilLesh` | Phil Lesh & Friends |
+| `BobWeir` | Bob Weir solo/Ratdog |
+| `JerryGarciaBand` | Jerry Garcia Band |
+| `OtherOnes` | The Other Ones |
+
+
+---
+
+## Contributing
+Pull requests welcome. Please open an issue first for major changes.
+
+---
+
+## License
+MIT License. Concert recordings are streamed via archive.org's open API. All recordings belong to their respective tapers who have shared them freely.
