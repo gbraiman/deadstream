@@ -25,6 +25,7 @@ async def async_setup_entry(
     async_add_entities([
         VenueSensor(coordinator, entry),
         CurrentTrackSensor(coordinator, entry),
+        NextTrackSensor(coordinator, entry),
         ShowCountSensor(coordinator, entry),
         TaperSensor(coordinator, entry),
     ])
@@ -87,6 +88,39 @@ class CurrentTrackSensor(_DeadstreamSensor):
             "format": track.format,
             "duration_seconds": track.duration,
             "url": track.url,
+        }
+
+
+class NextTrackSensor(_DeadstreamSensor):
+    """Shows the title of the upcoming track."""
+
+    _attr_name = "Next Track"
+    _attr_icon = "mdi:skip-next"
+
+    def __init__(self, coordinator: DeadstreamCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry, "next_track")
+
+    @property
+    def native_value(self) -> str | None:
+        tracks = self.coordinator.current_tracks
+        idx = self.coordinator.current_track_index
+        next_idx = idx + 1
+        if tracks and next_idx < len(tracks):
+            return tracks[next_idx].title
+        return None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        tracks = self.coordinator.current_tracks
+        idx = self.coordinator.current_track_index
+        next_idx = idx + 1
+        if not tracks or next_idx >= len(tracks):
+            return {}
+        t = tracks[next_idx]
+        return {
+            "track_number": t.track_num,
+            "format": t.format,
+            "duration_seconds": t.duration,
         }
 
 

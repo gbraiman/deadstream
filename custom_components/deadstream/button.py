@@ -27,6 +27,7 @@ async def async_setup_entry(
         PrevShowButton(coordinator, entry),
         RandomShowButton(coordinator, entry),
         LoadShowButton(coordinator, entry),
+        TodayInHistoryButton(coordinator, entry),
     ])
 
 
@@ -54,7 +55,6 @@ class NextShowButton(_DeadstreamButton):
         super().__init__(coordinator, entry, "next_show")
 
     async def async_press(self) -> None:
-        """Handle button press."""
         self.coordinator.next_show()
         self.coordinator.current_tracks = []
         self.coordinator.current_track_index = 0
@@ -71,7 +71,6 @@ class PrevShowButton(_DeadstreamButton):
         super().__init__(coordinator, entry, "prev_show")
 
     async def async_press(self) -> None:
-        """Handle button press."""
         self.coordinator.prev_show()
         self.coordinator.current_tracks = []
         self.coordinator.current_track_index = 0
@@ -88,12 +87,11 @@ class RandomShowButton(_DeadstreamButton):
         super().__init__(coordinator, entry, "random_show")
 
     async def async_press(self) -> None:
-        """Handle button press."""
         await self.coordinator.async_random_show()
 
 
 class LoadShowButton(_DeadstreamButton):
-    """Button to load the currently selected show's tracks."""
+    """Button to load the currently selected show's tracks and start playing."""
 
     _attr_name = "Load Show"
     _attr_icon = "mdi:playlist-play"
@@ -102,6 +100,35 @@ class LoadShowButton(_DeadstreamButton):
         super().__init__(coordinator, entry, "load_show")
 
     async def async_press(self) -> None:
-        """Load tracks for the currently selected show."""
-        await self.coordinator.async_load_current_show()
-        self.coordinator.async_update_listeners()
+        # Stop any current playback first
+        if self.coordinator.is_playing:
+            self.coordinator.is_playing = False
+            self.coordinator.async_update_listeners()
+
+        if not await self.coordinator.async_load_current_show():
+            _LOGGER.warning("Load Show: no tracks found for current selection")
+            return
+
+        # Trigger playback through the Deadstream media player entity
+        await self.hass.services.async_call(
+            "media_player",
+            "media_play",
+            {"entity_id": "media_player.deadstream"},
+        )
+
+
+class TodayInHistoryButton(_DeadstreamButton):
+    """Button that loads all shows from today's month/day across every year.
+
+    The Show selector will then list entries like "1977 — Barton Hall, Cornell"
+    so the user can pick which year's concert to hear.
+    """
+
+    _attr_name = "Today in History"
+    _attr_icon = "mdi:history"
+
+    def __init__(self, coordinator: DeadstreamCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry, "today_in_history")
+
+    async def async_press(self) -> None:
+        await self.coordinator.async_today_in_history()
