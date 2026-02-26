@@ -1,7 +1,9 @@
 """Deadstream media player entity."""
 from __future__ import annotations
 
+import asyncio
 import logging
+from datetime import datetime as dt
 from typing import Any
 
 from homeassistant.components.media_player import (
@@ -12,8 +14,9 @@ from homeassistant.components.media_player import (
     MediaType,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
@@ -40,7 +43,16 @@ SUPPORTED_FEATURES = (
     | MediaPlayerEntityFeature.VOLUME_STEP
     | MediaPlayerEntityFeature.BROWSE_MEDIA
     | MediaPlayerEntityFeature.PLAY_MEDIA
+    | MediaPlayerEntityFeature.SEEK
 )
+
+# States a target player can reach when a track ends naturally.
+_TRACK_END_STATES = frozenset({
+    MediaPlayerState.IDLE,
+    MediaPlayerState.OFF,
+    MediaPlayerState.STANDBY,
+    "stopped",
+})
 
 
 async def async_setup_entry(
@@ -54,7 +66,7 @@ async def async_setup_entry(
 
 
 class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlayerEntity):
-    """Deadstream virtual media player that streams to a target player."""
+    """Deadstream virtual media player — streams archive.org concerts to target players."""
 
     _attr_has_entity_name = True
     _attr_name = None
@@ -62,7 +74,6 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
     _attr_supported_features = SUPPORTED_FEATURES
 
     def __init__(self, coordinator: DeadstreamCoordinator, entry: ConfigEntry) -> None:
-        """Initialize the media player."""
         super().__init__(coordinator)
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_player"
@@ -70,19 +81,18 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": "Deadstream",
             "manufacturer": "archive.org",
-            "model": "Grateful Dead Time Machine",
+            "model": "Concert Time Machine",
             "entry_type": "service",
         }
         self._volume: float = 0.5
+        self._track_listener_unsub = None
 
     @property
     def name(self) -> str:
-        """Return entity name."""
         return "Deadstream"
 
     @property
     def state(self) -> MediaPlayerState:
-        """Return current playback state."""
         if not self.coordinator.available_shows:
             return MediaPlayerState.IDLE
         if self.coordinator.is_playing:
@@ -93,46 +103,63 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
 
     @property
     def media_title(self) -> str | None:
-        """Return current track title."""
         track = self.coordinator.current_track
         if track:
             return track.title
         show = self.coordinator.current_show
-        if show:
-            return show.title
-        return None
+        return show.title if show else None
 
     @property
     def media_artist(self) -> str | None:
-        """Return artist name (venue/date for GD)."""
         show = self.coordinator.current_show
-        if show:
-            return show.location or "Grateful Dead"
-        return "Grateful Dead"
+        return show.location if show else None
 
     @property
     def media_album_name(self) -> str | None:
-        """Return show date as album name."""
         show = self.coordinator.current_show
-        if show:
-            return show.display_date
-        return None
+        return show.display_date if show else None
 
     @property
     def media_track(self) -> int | None:
-        """Return current track number."""
         if self.coordinator.current_tracks:
             return self.coordinator.current_track_index + 1
         return None
 
     @property
     def volume_level(self) -> float:
-        """Return current volume level (0..1)."""
         return self._volume
 
     @property
+    def media_image_url(self) -> str | None:
+        show = self.coordinator.current_show
+        if show:
+            # Use the collection-level image (band photo) rather than the
+            # item-level image which is typically the spectral waveform.
+            return f"https://archive.org/services/img/{show.collection}"
+        return None
+
+    @property
+    def media_position(self) -> float | None:
+        """Forward playback position from the active target player."""
+        target = self.coordinator.target_player
+        if target:
+            state = self.hass.states.get(target)
+            if state:
+                return state.attributes.get("media_position")
+        return None
+
+    @property
+    def media_position_updated_at(self) -> dt | None:
+        """Forward the position timestamp from the active target player."""
+        target = self.coordinator.target_player
+        if target:
+            state = self.hass.states.get(target)
+            if state:
+                return state.attributes.get("media_position_updated_at")
+        return None
+
+    @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return additional state attributes."""
         attrs: dict[str, Any] = {}
         show = self.coordinator.current_show
         if show:
@@ -148,104 +175,92 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
             attrs[ATTR_SETLIST] = [t.title for t in self.coordinator.current_tracks]
         return attrs
 
+    # ------------------------------------------------------------------
+    # Playback control
+    # ------------------------------------------------------------------
+
     async def async_media_play(self) -> None:
-        """Start or resume playback."""
         if not self.coordinator.current_tracks:
-            loaded = await self.coordinator.async_load_current_show()
-            if not loaded:
+            # Nothing loaded yet — fetch tracks and stream the first one.
+            if not await self.coordinator.async_load_current_show():
                 _LOGGER.warning("No tracks to play")
                 return
-
-        self.coordinator.is_playing = True
-        await self._send_to_target_player()
+            self.coordinator.is_playing = True
+            await self._send_to_target_players(fresh_start=True)
+        else:
+            # Tracks are already loaded (we were paused) — just resume.
+            self.coordinator.is_playing = True
+            await self._call_all_targets("media_play", {})
+            self._register_track_listener()
         self.async_write_ha_state()
 
     async def async_media_pause(self) -> None:
-        """Pause playback."""
+        self._cancel_track_listener()
         self.coordinator.is_playing = False
-        target = self.coordinator.target_player
-        if target and self.hass.states.get(target):
-            await self.hass.services.async_call(
-                "media_player", "media_pause", {"entity_id": target}
-            )
+        await self._call_all_targets("media_pause", {})
         self.async_write_ha_state()
 
     async def async_media_stop(self) -> None:
-        """Stop playback."""
+        self._cancel_track_listener()
         self.coordinator.is_playing = False
         self.coordinator.current_tracks = []
         self.coordinator.current_track_index = 0
-        target = self.coordinator.target_player
-        if target and self.hass.states.get(target):
-            await self.hass.services.async_call(
-                "media_player", "media_stop", {"entity_id": target}
-            )
+        await self._call_all_targets("media_stop", {})
         self.async_write_ha_state()
 
     async def async_media_next_track(self) -> None:
-        """Skip to next track."""
         if self.coordinator.next_track():
-            if self.coordinator.is_playing:
-                await self._send_to_target_player()
-        else:
-            _LOGGER.debug("Already at last track")
+            self.coordinator.is_playing = True
+            await self._send_to_target_players()
         self.async_write_ha_state()
 
     async def async_media_previous_track(self) -> None:
-        """Go back to previous track."""
         if self.coordinator.prev_track():
-            if self.coordinator.is_playing:
-                await self._send_to_target_player()
+            self.coordinator.is_playing = True
+            await self._send_to_target_players()
         self.async_write_ha_state()
 
     async def async_set_volume_level(self, volume: float) -> None:
-        """Set volume level."""
         self._volume = volume
-        target = self.coordinator.target_player
-        if target and self.hass.states.get(target):
-            await self.hass.services.async_call(
-                "media_player",
-                "volume_set",
-                {"entity_id": target, "volume_level": volume},
-            )
+        await self._call_all_targets("volume_set", {"volume_level": volume})
         self.async_write_ha_state()
 
-    async def async_play_media(
-        self, media_type: str, media_id: str, **kwargs: Any
-    ) -> None:
-        """Play a specific media item by identifier."""
-        # media_id can be an archive.org identifier
+    async def async_media_seek(self, position: float) -> None:
+        """Seek to a position on the target player."""
+        await self._call_all_targets("media_seek", {"seek_position": position})
+
+    async def async_play_media(self, media_type: str, media_id: str, **kwargs: Any) -> None:
+        """Play a specific show by archive.org identifier."""
         show = next(
             (s for s in self.coordinator.available_shows if s.identifier == media_id),
             None,
         )
         if show:
-            idx = self.coordinator.available_shows.index(show)
-            self.coordinator.current_show_index = idx
-        loaded = await self.coordinator.async_load_current_show()
-        if loaded:
+            self.coordinator.current_show_index = self.coordinator.available_shows.index(show)
+        if await self.coordinator.async_load_current_show():
             self.coordinator.is_playing = True
-            await self._send_to_target_player()
+            await self._send_to_target_players(fresh_start=True)
         self.async_write_ha_state()
+
+    # ------------------------------------------------------------------
+    # Media browsing
+    # ------------------------------------------------------------------
 
     async def async_browse_media(
         self,
         media_content_type: str | None = None,
         media_content_id: str | None = None,
     ) -> BrowseMedia:
-        """Browse available shows."""
         if media_content_id is None:
-            # Root: list available shows for current date
-            coordinator = self.coordinator
-            shows = coordinator.available_shows
+            shows = self.coordinator.available_shows
             children = [
                 BrowseMedia(
-                    title=f"{show.display_date} - {show.location}",
+                    title=f"{show.display_date} — {show.location}",
                     media_class="music",
                     media_content_id=show.identifier,
                     media_content_type=MediaType.MUSIC,
                     can_play=True,
-                    can_expand=False,
+                    can_expand=True,
                     thumbnail=None,
                 )
                 for show in shows
@@ -260,7 +275,6 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
                 children=children,
             )
 
-        # Show tracks for a specific identifier
         tracks = await self.coordinator.client.get_show_tracks(
             media_content_id, self.coordinator.play_lossless
         )
@@ -286,30 +300,118 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
             children=children,
         )
 
-    async def _send_to_target_player(self) -> None:
-        """Send current track URL to the configured target media player."""
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Clean up track-end listener when entity is removed."""
+        self._cancel_track_listener()
+
+    def _cancel_track_listener(self) -> None:
+        """Unsubscribe from target player state changes."""
+        if self._track_listener_unsub:
+            self._track_listener_unsub()
+            self._track_listener_unsub = None
+
+    def _register_track_listener(self) -> None:
+        """Listen for target player going idle so we can auto-advance."""
+        self._cancel_track_listener()
+        targets = [eid for eid in self.coordinator.target_players if self.hass.states.get(eid)]
+        if not targets:
+            return
+        self._track_listener_unsub = async_track_state_change_event(
+            self.hass, targets, self._handle_target_state_change
+        )
+
+    @callback
+    def _handle_target_state_change(self, event: Any) -> None:
+        """Auto-advance to the next track when the target player finishes."""
+        old_state = event.data.get("old_state")
+        new_state = event.data.get("new_state")
+        if not old_state or not new_state:
+            return
+        # Fire when the target transitions to an end state from playing or paused.
+        # Some players (e.g. Sonos) go PLAYING → PAUSED → IDLE when a track ends
+        # naturally, so we catch both old states here.
+        # coordinator.is_playing guards against this firing on an intentional pause.
+        if (
+            old_state.state in (MediaPlayerState.PLAYING, MediaPlayerState.PAUSED)
+            and new_state.state in _TRACK_END_STATES
+            and self.coordinator.is_playing
+        ):
+            self.hass.async_create_task(self._auto_advance())
+
+    async def _auto_advance(self) -> None:
+        """Advance to the next track, or stop at end of setlist.
+
+        A short sleep guards against false positives: when play_media loads a
+        new URL the target player briefly goes idle before buffering starts,
+        which would otherwise look like a natural track end.
+        """
+        self._cancel_track_listener()
+        await asyncio.sleep(2)
+        if not self.coordinator.is_playing:
+            return
+        # If the target already recovered to playing, it wasn't a real track end.
+        for eid in self.coordinator.target_players:
+            s = self.hass.states.get(eid)
+            if s and s.state == MediaPlayerState.PLAYING:
+                self._register_track_listener()
+                return
+        if self.coordinator.next_track():
+            await self._send_to_target_players()
+            self.async_write_ha_state()
+        else:
+            self.coordinator.is_playing = False
+            self.async_write_ha_state()
+
+    async def _send_to_target_players(self, fresh_start: bool = False) -> None:
+        """Stream the current track URL to every configured target player.
+
+        fresh_start=True: stop the target first so it doesn't resume a
+        previously paused track when we swap to a different show.
+        """
         track = self.coordinator.current_track
         if not track:
             return
-
-        target = self.coordinator.target_player
-        if not target:
+        targets = [
+            eid for eid in self.coordinator.target_players
+            if self.hass.states.get(eid)
+        ]
+        if not targets:
             _LOGGER.warning(
-                "No target player configured. Set one in Deadstream options."
+                "No target player selected. Use the Target Player selector to choose a destination."
             )
             return
-
-        if not self.hass.states.get(target):
-            _LOGGER.warning("Target player %s not found", target)
-            return
-
-        _LOGGER.debug("Sending %s to %s", track.url, target)
+        if fresh_start:
+            # Stop the target first so it doesn't resume a previously paused track.
+            await self.hass.services.async_call(
+                "media_player", "media_stop", {"entity_id": targets}
+            )
+        _LOGGER.debug("Sending %s to %s", track.url, targets)
         await self.hass.services.async_call(
             "media_player",
             "play_media",
             {
-                "entity_id": target,
+                "entity_id": targets,
                 "media_content_id": track.url,
                 "media_content_type": MediaType.MUSIC,
             },
+        )
+        # Register listener so the next track plays automatically when this one ends.
+        self._register_track_listener()
+
+    async def _call_all_targets(self, service: str, extra: dict) -> None:
+        """Call a media_player service on all active target players."""
+        targets = [
+            eid for eid in self.coordinator.target_players
+            if self.hass.states.get(eid)
+        ]
+        if not targets:
+            return
+        await self.hass.services.async_call(
+            "media_player",
+            service,
+            {"entity_id": targets, **extra},
         )
