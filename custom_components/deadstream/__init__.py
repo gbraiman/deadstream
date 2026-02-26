@@ -11,9 +11,9 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
     CONF_COLLECTIONS,
-    CONF_DEFAULT_PLAYER,
     CONF_FAVORED_TAPER,
     CONF_PLAY_LOSSLESS,
+    CONF_TARGET_PLAYER,
     DEFAULT_COLLECTIONS,
     DEFAULT_FAVORED_TAPER,
     DEFAULT_PLAY_LOSSLESS,
@@ -22,7 +22,6 @@ from .const import (
     SERVICE_PLAY_DATE,
     SERVICE_PREV_SHOW,
     SERVICE_RANDOM_SHOW,
-    SERVICE_TODAY_IN_HISTORY,
 )
 from .coordinator import DeadstreamCoordinator
 
@@ -33,10 +32,10 @@ PLATFORMS: list[Platform] = [
     Platform.MEDIA_PLAYER,
     Platform.SELECT,
     Platform.SENSOR,
-    Platform.SWITCH,
 ]
 
 SERVICE_PLAY_DATE_SCHEMA = vol.Schema({
+    vol.Required("year"): vol.All(int, vol.Range(min=1900)),
     vol.Required("month"): vol.All(int, vol.Range(min=1, max=12)),
     vol.Required("day"): vol.All(int, vol.Range(min=1, max=31)),
 })
@@ -61,19 +60,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         play_lossless=entry.options.get(CONF_PLAY_LOSSLESS, entry.data.get(CONF_PLAY_LOSSLESS, DEFAULT_PLAY_LOSSLESS)),
         favored_taper=entry.options.get(CONF_FAVORED_TAPER, entry.data.get(CONF_FAVORED_TAPER, DEFAULT_FAVORED_TAPER)),
     )
-
-    # Apply default player from config (user-chosen in options flow).
-    default_player = entry.options.get(CONF_DEFAULT_PLAYER) or entry.data.get(CONF_DEFAULT_PLAYER, "")
-    if default_player:
-        coordinator.default_player = default_player
-        coordinator.target_player = default_player
-        _LOGGER.debug("Deadstream: default player set to %s", default_player)
-
-    _LOGGER.info(
-        "Deadstream starting — collections: %s, default_player: %s",
-        coordinator.collections,
-        coordinator.target_player or "(none)",
-    )
+    coordinator.target_player = entry.options.get(CONF_TARGET_PLAYER, entry.data.get(CONF_TARGET_PLAYER))
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
@@ -94,7 +81,12 @@ def _register_services(hass: HomeAssistant) -> None:
     async def handle_play_date(call: ServiceCall) -> None:
         coordinator = _get_coordinator(hass)
         if coordinator:
-            await coordinator.async_set_date(call.data["month"], call.data["day"])
+            await coordinator.async_set_date(
+                call.data["year"], call.data["month"], call.data["day"]
+            )
+            await coordinator.async_load_current_show()
+            coordinator.is_playing = True
+            coordinator.async_update_listeners()
 
     async def handle_next_show(call: ServiceCall) -> None:
         coordinator = _get_coordinator(hass)
@@ -117,16 +109,10 @@ def _register_services(hass: HomeAssistant) -> None:
         if coordinator:
             await coordinator.async_random_show()
 
-    async def handle_today_in_history(call: ServiceCall) -> None:
-        coordinator = _get_coordinator(hass)
-        if coordinator:
-            await coordinator.async_today_in_history()
-
     hass.services.async_register(DOMAIN, SERVICE_PLAY_DATE, handle_play_date, SERVICE_PLAY_DATE_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_NEXT_SHOW, handle_next_show)
     hass.services.async_register(DOMAIN, SERVICE_PREV_SHOW, handle_prev_show)
     hass.services.async_register(DOMAIN, SERVICE_RANDOM_SHOW, handle_random_show)
-    hass.services.async_register(DOMAIN, SERVICE_TODAY_IN_HISTORY, handle_today_in_history)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -135,13 +121,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
         if not hass.data.get(DOMAIN):
-            for service in (
-                SERVICE_PLAY_DATE,
-                SERVICE_NEXT_SHOW,
-                SERVICE_PREV_SHOW,
-                SERVICE_RANDOM_SHOW,
-                SERVICE_TODAY_IN_HISTORY,
-            ):
+            for service in (SERVICE_PLAY_DATE, SERVICE_NEXT_SHOW, SERVICE_PREV_SHOW, SERVICE_RANDOM_SHOW):
                 hass.services.async_remove(DOMAIN, service)
     return unload_ok
 

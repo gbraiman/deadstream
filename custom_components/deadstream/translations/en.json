@@ -3,16 +3,16 @@
     "step": {
       "user": {
         "title": "Set up Deadstream",
-        "description": "Stream concerts from archive.org to your media players. After setup, use the Band switches to choose which artists to search.",
+        "description": "Stream Grateful Dead concerts from archive.org to your media players.",
         "data": {
-          "collections": "Bands",
-          "default_player": "Default Speaker",
+          "target_player": "Target Media Player",
+          "collections": "Collections",
           "play_lossless": "Prefer Lossless Audio",
           "favored_taper": "Favored Taper (optional)"
         },
         "data_description": {
-          "collections": "Which archive.org collections to include. A switch is created for each selected band so you can toggle them at runtime.",
-          "default_player": "Media player to stream to when Deadstream loads. Can be overridden at any time with the Target Player selector.",
+          "target_player": "The Sonos, Chromecast, or other media player to stream to.",
+          "collections": "Which archive.org collections to search.",
           "play_lossless": "Prefer FLAC/SHN over MP3 when available.",
           "favored_taper": "Preferred taper name to rank first in results."
         }
@@ -27,54 +27,47 @@
       "init": {
         "title": "Deadstream Options",
         "data": {
-          "collections": "Bands",
-          "default_player": "Default Speaker",
+          "target_player": "Target Media Player",
+          "collections": "Collections",
           "play_lossless": "Prefer Lossless Audio",
           "favored_taper": "Favored Taper"
-        },
-        "data_description": {
-          "collections": "Which archive.org collections to include. Switches are only created for the bands you select here.",
-          "default_player": "Media player used at startup. Overridable via the Target Player selector on the dashboard.",
-          "play_lossless": "Prefer FLAC/SHN over MP3 when available.",
-          "favored_taper": "Preferred taper name to rank first in the Taper dropdown."
         }
       }
     }
   },
   "entity": {
-    "button": {
-      "next_show": { "name": "Next Show" },
-      "prev_show": { "name": "Previous Show" },
-      "random_show": { "name": "Random Show" },
-      "load_show": { "name": "Load Show" },
-      "today_in_history": { "name": "Today in History" }
-    },
     "select": {
-      "month": { "name": "Month" },
-      "day": { "name": "Day" },
-      "show": { "name": "Show" },
-      "taper_select": { "name": "Taper" },
-      "target_player": { "name": "Target Player" }
-    },
-    "switch": {
-      "collection_gratefuldead": { "name": "Grateful Dead" },
-      "collection_phillesh": { "name": "Phil Lesh" },
-      "collection_bobweir": { "name": "Bob Weir" },
-      "collection_jerrygarciabband": { "name": "Jerry Garcia Band" },
-      "collection_otherones": { "name": "The Other Ones" },
-      "collection_theotherones": { "name": "The Other Ones (alt)" },
-      "collection_phish": { "name": "Phish" },
-      "collection_goose": { "name": "Goose" }
+      "year": {
+        "name": "Year"
+      },
+      "month": {
+        "name": "Month"
+      },
+      "day": {
+        "name": "Day"
+      },
+      "show": {
+        "name": "Show"
+      }
     },
     "sensor": {
-      "venue": { "name": "Venue" },
-      "current_track": { "name": "Current Track" },
-      "next_track": { "name": "Next Track" },
-      "show_count": { "name": "Shows Available" },
-      "taper": { "name": "Taper" }
+      "venue": {
+        "name": "Venue"
+      },
+      "current_track": {
+        "name": "Current Track"
+      },
+      "show_count": {
+        "name": "Shows Available"
+      },
+      "taper": {
+        "name": "Taper"
+      }
     },
     "media_player": {
-      "deadstream": { "name": "Deadstream" }
+      "deadstream": {
+        "name": "Deadstream"
+      }
     }
   }
 }

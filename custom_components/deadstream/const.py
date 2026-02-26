@@ -7,7 +7,6 @@ CONF_COLLECTIONS = "collections"
 CONF_TARGET_PLAYER = "target_player"
 CONF_PLAY_LOSSLESS = "play_lossless"
 CONF_FAVORED_TAPER = "favored_taper"
-CONF_DEFAULT_PLAYER = "default_player"
 
 # Defaults
 DEFAULT_COLLECTIONS = ["GratefulDead"]
@@ -38,12 +37,11 @@ SERVICE_PLAY_DATE = "play_date"
 SERVICE_NEXT_SHOW = "next_show"
 SERVICE_PREV_SHOW = "prev_show"
 SERVICE_RANDOM_SHOW = "random_show"
-SERVICE_TODAY_IN_HISTORY = "today_in_history"
 
 # Update interval (seconds)
 UPDATE_INTERVAL = 30
 
-# Available collections on archive.org (id → display label)
+# Available collections on archive.org
 AVAILABLE_COLLECTIONS = [
     "GratefulDead",
     "PhilLesh",
@@ -52,19 +50,4 @@ AVAILABLE_COLLECTIONS = [
     "OtherOnes",
     "TheOtherOnes",
     "Phish",
-    "Goose",
 ]
-
-COLLECTION_LABELS: dict[str, str] = {
-    "GratefulDead": "Grateful Dead",
-    "PhilLesh": "Phil Lesh",
-    "BobWeir": "Bob Weir",
-    "JerryGarciaBand": "Jerry Garcia Band",
-    "OtherOnes": "The Other Ones",
-    "TheOtherOnes": "The Other Ones (alt)",
-    "Phish": "Phish",
-    "Goose": "Goose",
-}
-
-# Maximum recordings returned per date search (de-noises the show list)
-MAX_SHOWS_PER_SEARCH = 25

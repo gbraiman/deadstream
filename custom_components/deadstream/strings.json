@@ -3,14 +3,16 @@
     "step": {
       "user": {
         "title": "Set up Deadstream",
-        "description": "Stream concerts from archive.org to your media players. After setup, use the Band switches to choose which artists to search, and the Target Player selector to choose your speakers.",
+        "description": "Stream Grateful Dead concerts from archive.org to your media players.",
         "data": {
-          "collections": "Initial Bands",
+          "target_player": "Target Media Player",
+          "collections": "Collections",
           "play_lossless": "Prefer Lossless Audio",
           "favored_taper": "Favored Taper (optional)"
         },
         "data_description": {
-          "collections": "Which archive.org collections to search. Can be changed any time via the band switches.",
+          "target_player": "The Sonos, Chromecast, or other media player to stream to.",
+          "collections": "Which archive.org collections to search.",
           "play_lossless": "Prefer FLAC/SHN over MP3 when available.",
           "favored_taper": "Preferred taper name to rank first in results."
         }
@@ -25,7 +27,8 @@
       "init": {
         "title": "Deadstream Options",
         "data": {
-          "collections": "Default Bands",
+          "target_player": "Target Media Player",
+          "collections": "Collections",
           "play_lossless": "Prefer Lossless Audio",
           "favored_taper": "Favored Taper"
         }
@@ -48,10 +51,6 @@
     "random_show": {
       "name": "Random Show",
       "description": "Load a random concert."
-    },
-    "today_in_history": {
-      "name": "Today in History",
-      "description": "Show all concerts from today's calendar date across every year."
     }
   }
 }
