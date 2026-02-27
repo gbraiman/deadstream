@@ -285,6 +285,18 @@ class ArchiveClient:
                 value = value[0] if value else ""
             return str(value or "")
 
+        def _normalize_collection(raw_collection: Any) -> str:
+            if isinstance(raw_collection, list):
+                candidates = [str(c).strip() for c in raw_collection]
+            else:
+                raw = str(raw_collection or "")
+                candidates = [c.strip() for c in re.split(r"[,;]", raw)] if raw else []
+
+            for candidate in candidates:
+                if candidate.lower() in collection_lookup:
+                    return collection_lookup[candidate.lower()]
+            return collections[0]
+
         for item in items:
             identifier = _first_text(item.get("identifier", ""))
             if not identifier:
@@ -300,17 +312,7 @@ class ArchiveClient:
             # first element that matches one of our configured collections; fall back
             # to collections[0] if none match (shouldn't happen but keeps us safe).
             raw_coll = item.get("collection", [])
-            if isinstance(raw_coll, list):
-                collection = next(
-                    (
-                        collection_lookup.get(str(c).lower(), "")
-                        for c in raw_coll
-                        if str(c).lower() in collection_lookup
-                    ),
-                    collections[0],
-                )
-            else:
-                collection = collection_lookup.get(str(raw_coll).lower(), collections[0])
+            collection = _normalize_collection(raw_coll)
 
             taper = _first_text(item.get("taper", ""))
 

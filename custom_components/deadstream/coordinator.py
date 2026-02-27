@@ -182,7 +182,9 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
             day=d.day,
             favored_taper=self.favored_taper,
         )
-        self.available_tapers = tapers
+        # Keep the selected show as a fallback so the taper selector is never empty
+        # when archive.org returns sparse/partial metadata for this date.
+        self.available_tapers = tapers or [show]
         self.current_taper_index = 0
 
     # ------------------------------------------------------------------
