@@ -127,6 +127,13 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
         return None
 
     @property
+    def media_duration(self) -> float | None:
+        track = self.coordinator.current_track
+        if track and track.duration > 0:
+            return track.duration
+        return None
+
+    @property
     def volume_level(self) -> float:
         return self._volume
 
