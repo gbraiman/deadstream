@@ -184,6 +184,11 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
 
         show = self.available_shows[index] if 0 <= index < len(self.available_shows) else None
         if show:
+            # Immediate show-scoped fallback so old taper labels cannot linger
+            # while the async archive lookup is in flight.
+            self.available_tapers = [show]
+            self.current_taper_index = 0
+            self._tapers_for_show_identifier = show.identifier
             await self._async_load_tapers_for_show(show)
 
         self.async_update_listeners()
@@ -198,10 +203,10 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
             self.async_update_listeners()
             return
 
-        # Clear stale values before reload.
-        self.available_tapers = []
+        # Clear stale values before reload, then pin to selected show while loading.
+        self.available_tapers = [show]
         self.current_taper_index = 0
-        self._tapers_for_show_identifier = None
+        self._tapers_for_show_identifier = show.identifier
         await self._async_load_tapers_for_show(show)
         self.async_update_listeners()
 
@@ -226,6 +231,15 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
         except Exception as err:  # defensive: never leave stale prior tapers in place
             _LOGGER.warning("Failed loading tapers for %s (%s): %s", show.identifier, show.collection, err)
             tapers = []
+
+        # If selection changed while this request was in flight, drop stale results.
+        selected_show = (
+            self.available_shows[self.current_show_index]
+            if self.available_shows and 0 <= self.current_show_index < len(self.available_shows)
+            else None
+        )
+        if not selected_show or selected_show.identifier != show.identifier:
+            return
 
         # Keep the selected show as a fallback so the taper selector is never empty
         # when archive.org returns sparse/partial metadata for this date.

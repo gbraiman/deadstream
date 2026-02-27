@@ -86,6 +86,7 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
         }
         self._volume: float = 0.5
         self._track_listener_unsub = None
+        self._track_end_fallback_task: asyncio.Task | None = None
         self._active_track_url: str | None = None
 
     @property
@@ -326,10 +327,13 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
         self._cancel_track_listener()
 
     def _cancel_track_listener(self) -> None:
-        """Unsubscribe from target player state changes."""
+        """Unsubscribe from target player state changes and fallback timer."""
         if self._track_listener_unsub:
             self._track_listener_unsub()
             self._track_listener_unsub = None
+        if self._track_end_fallback_task and not self._track_end_fallback_task.done():
+            self._track_end_fallback_task.cancel()
+        self._track_end_fallback_task = None
 
     def _register_track_listener(self) -> None:
         """Listen for target player going idle so we can auto-advance."""
@@ -396,6 +400,26 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
             return [self.coordinator.default_player]
         return []
 
+    def _schedule_track_end_fallback(self, track_url: str, duration: float) -> None:
+        """Fallback auto-advance timer when target state events are unreliable."""
+        if duration <= 0:
+            return
+        if self._track_end_fallback_task and not self._track_end_fallback_task.done():
+            self._track_end_fallback_task.cancel()
+
+        async def _run() -> None:
+            try:
+                await asyncio.sleep(duration + 2)
+            except asyncio.CancelledError:
+                return
+            if (
+                self.coordinator.is_playing
+                and self._active_track_url == track_url
+            ):
+                await self._auto_advance()
+
+        self._track_end_fallback_task = self.hass.async_create_task(_run())
+
     async def _send_to_target_players(self, fresh_start: bool = False) -> None:
         """Stream the current track URL to every configured target player.
 
@@ -429,6 +453,7 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
         self._active_track_url = track.url
         # Register listener so the next track plays automatically when this one ends.
         self._register_track_listener()
+        self._schedule_track_end_fallback(track.url, track.duration)
 
     async def _call_all_targets(self, service: str, extra: dict) -> None:
         """Call a media_player service on all active target players."""
