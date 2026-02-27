@@ -91,7 +91,7 @@ class RandomShowButton(_DeadstreamButton):
 
 
 class LoadShowButton(_DeadstreamButton):
-    """Button to load the currently selected show's tracks and start playing."""
+    """Button to load the currently selected show's tracks without auto-play."""
 
     _attr_name = "Load Show"
     _attr_icon = "mdi:playlist-play"
@@ -100,21 +100,21 @@ class LoadShowButton(_DeadstreamButton):
         super().__init__(coordinator, entry, "load_show")
 
     async def async_press(self) -> None:
-        # Stop any current playback first
+        # Stop current playback and load the selected show/taper as the next queue.
         if self.coordinator.is_playing:
-            self.coordinator.is_playing = False
-            self.coordinator.async_update_listeners()
+            await self.hass.services.async_call(
+                "media_player",
+                "media_stop",
+                {"entity_id": "media_player.deadstream"},
+            )
 
         if not await self.coordinator.async_load_current_show():
             _LOGGER.warning("Load Show: no tracks found for current selection")
             return
 
-        # Trigger playback through the Deadstream media player entity
-        await self.hass.services.async_call(
-            "media_player",
-            "media_play",
-            {"entity_id": "media_player.deadstream"},
-        )
+        self.coordinator.is_playing = False
+        self.coordinator.current_track_index = 0
+        self.coordinator.async_update_listeners()
 
 
 class TodayInHistoryButton(_DeadstreamButton):

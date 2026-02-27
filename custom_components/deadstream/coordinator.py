@@ -39,7 +39,10 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
             update_interval=timedelta(seconds=UPDATE_INTERVAL),
         )
         self.client = ArchiveClient(session)
-        self.collections: list[str] = collections or DEFAULT_COLLECTIONS
+        if isinstance(collections, str):
+            self.collections = [collections]
+        else:
+            self.collections = collections or DEFAULT_COLLECTIONS
         self.play_lossless = play_lossless
         self.favored_taper = favored_taper
 
@@ -167,7 +170,7 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
         """Fetch all recordings for show's date, sorted by downloads (best first)."""
         try:
             d = _date.fromisoformat(show.date[:10])
-        except (ValueError, AttributeError):
+        except (TypeError, ValueError, AttributeError):
             self.available_tapers = []
             self.current_taper_index = 0
             return
