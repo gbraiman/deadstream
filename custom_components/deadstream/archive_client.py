@@ -88,6 +88,38 @@ def _with_mediatype(query: str) -> str:
     return f"{query} AND mediatype:(etree OR audio)"
 
 
+def _parse_duration_seconds(value: Any) -> float:
+    """Parse archive duration values into seconds."""
+    if value is None:
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    text = str(value).strip()
+    if not text:
+        return 0.0
+
+    # Numeric strings are already seconds.
+    try:
+        return float(text)
+    except ValueError:
+        pass
+
+    # Handle M:SS or H:MM:SS style durations.
+    parts = text.split(":")
+    if len(parts) in (2, 3):
+        try:
+            nums = [float(p) for p in parts]
+        except ValueError:
+            return 0.0
+        if len(nums) == 2:
+            minutes, seconds = nums
+            return minutes * 60 + seconds
+        hours, minutes, seconds = nums
+        return hours * 3600 + minutes * 60 + seconds
+
+    return 0.0
+
 @dataclass
 class Track:
     """Represents a single audio track."""
@@ -437,10 +469,7 @@ class ArchiveClient:
             if not chosen:
                 continue
             name = chosen.get("name", "")
-            try:
-                duration = float(chosen.get("length", 0))
-            except (ValueError, TypeError):
-                duration = 0.0
+            duration = _parse_duration_seconds(chosen.get("length", 0))
             tracks.append(Track(
                 name=name,
                 title=chosen.get("title", "") or stem,

@@ -114,32 +114,52 @@ class ShowSelect(_DeadstreamSelect):
             base = year
         return f"{base} \u2014 {loc}" if loc else base
 
+    def _show_options(self) -> list[str]:
+        """Return stable display options; disambiguate duplicate labels."""
+        shows = self.coordinator.available_shows
+        base_labels = [self._show_label(i) for i in range(len(shows))]
+        if not base_labels:
+            return []
+
+        counts: dict[str, int] = {}
+        for label in base_labels:
+            counts[label] = counts.get(label, 0) + 1
+
+        used: dict[str, int] = {}
+        options: list[str] = []
+        for idx, label in enumerate(base_labels):
+            if counts[label] <= 1:
+                options.append(label)
+                continue
+            used[label] = used.get(label, 0) + 1
+            ident = shows[idx].identifier
+            short_id = ident[:10] if ident else str(used[label])
+            options.append(f"{label} [{short_id}]")
+        return options
+
     @property
     def options(self) -> list[str]:
-        shows = self.coordinator.available_shows
-        return [self._show_label(i) for i in range(len(shows))] or [_NO_SHOWS]
+        return self._show_options() or [_NO_SHOWS]
 
     @property
     def current_option(self) -> str | None:
-        if not self.coordinator.available_shows:
+        opts = self._show_options()
+        if not opts:
             return None
         idx = self.coordinator.current_show_index
-        n = len(self.coordinator.available_shows)
-        return self._show_label(max(0, min(idx, n - 1)))
+        n = len(opts)
+        return opts[max(0, min(idx, n - 1))]
 
     async def async_select_option(self, option: str) -> None:
-        opts = self.options
+        opts = self._show_options()
         selected_idx: int | None = None
 
-        # Primary path: exact lookup from the rendered options list.
         if option in opts:
             selected_idx = opts.index(option)
-
-        # Fallback: normalized matching if frontend formatting drifted.
-        if selected_idx is None:
+        else:
             normalized = option.strip().lower()
-            for idx in range(len(self.coordinator.available_shows)):
-                if self._show_label(idx).strip().lower() == normalized:
+            for idx, candidate in enumerate(opts):
+                if candidate.strip().lower() == normalized:
                     selected_idx = idx
                     break
 
