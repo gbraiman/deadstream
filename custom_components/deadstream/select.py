@@ -128,9 +128,26 @@ class ShowSelect(_DeadstreamSelect):
         return self._show_label(max(0, min(idx, n - 1)))
 
     async def async_select_option(self, option: str) -> None:
-        opts = self.options
-        if option in opts:
-            await self.coordinator.async_select_show(opts.index(option))
+        shows = self.coordinator.available_shows
+        selected_idx: int | None = None
+        normalized = option.strip()
+
+        for idx in range(len(shows)):
+            if self._show_label(idx).strip() == normalized:
+                selected_idx = idx
+                break
+
+        # Fallback: case-insensitive match if UI formatting introduced subtle differences.
+        if selected_idx is None:
+            lower = normalized.lower()
+            for idx in range(len(shows)):
+                if self._show_label(idx).strip().lower() == lower:
+                    selected_idx = idx
+                    break
+
+        if selected_idx is not None:
+            await self.coordinator.async_select_show(selected_idx)
+
         self.async_write_ha_state()
 
     @callback

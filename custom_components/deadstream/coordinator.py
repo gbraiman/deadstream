@@ -150,26 +150,33 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
         self.current_show_index = index
         self.current_tracks = []
         self.current_track_index = 0
-        if self.is_playing:
-            self.is_playing = False
+        self.is_playing = False
+
+        # Invalidate stale taper list immediately so UI cannot keep showing
+        # tapers from a previously selected show if loading fails.
+        self.available_tapers = []
+        self.current_taper_index = 0
 
         show = self.available_shows[index] if 0 <= index < len(self.available_shows) else None
         if show:
             await self._async_load_tapers_for_show(show)
-        else:
-            self.available_tapers = []
-            self.current_taper_index = 0
 
         self.async_update_listeners()
 
     async def async_load_tapers_for_current_show(self) -> None:
         """Load tapers for the currently selected show."""
         show = self.available_shows[self.current_show_index] if self.available_shows else None
-        if show:
-            await self._async_load_tapers_for_show(show)
-        else:
+        if not show:
             self.available_tapers = []
             self.current_taper_index = 0
+            self.async_update_listeners()
+            return
+
+        # Clear stale values before reload.
+        self.available_tapers = []
+        self.current_taper_index = 0
+        await self._async_load_tapers_for_show(show)
+        self.async_update_listeners()
 
     async def _async_load_tapers_for_show(self, show: Show) -> None:
         """Fetch all recordings for show's date, sorted by downloads (best first)."""
@@ -180,13 +187,18 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
             self.current_taper_index = 0
             return
 
-        tapers = await self.client.search_tapers_for_date(
-            collections=[show.collection],  # scope to this band only
-            year=d.year,
-            month=d.month,
-            day=d.day,
-            favored_taper=self.favored_taper,
-        )
+        try:
+            tapers = await self.client.search_tapers_for_date(
+                collections=[show.collection],  # scope to this band only
+                year=d.year,
+                month=d.month,
+                day=d.day,
+                favored_taper=self.favored_taper,
+            )
+        except Exception as err:  # defensive: never leave stale prior tapers in place
+            _LOGGER.warning("Failed loading tapers for %s (%s): %s", show.identifier, show.collection, err)
+            tapers = []
+
         # Keep the selected show as a fallback so the taper selector is never empty
         # when archive.org returns sparse/partial metadata for this date.
         self.available_tapers = tapers or [show]
