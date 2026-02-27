@@ -66,5 +66,18 @@ COLLECTION_LABELS: dict[str, str] = {
     "Goose": "Goose",
 }
 
+# Additional archive query aliases per configured collection id.
+# Includes common collection-id variants and creator strings seen in archive metadata.
+COLLECTION_QUERY_ALIASES: dict[str, list[str]] = {
+    "GratefulDead": ["GratefulDead", "gratefuldead", "Grateful Dead"],
+    "PhilLesh": ["PhilLesh", "PhilLeshAndFriends", "philLeshandfriends", "Phil Lesh", "Phil Lesh and Friends"],
+    "BobWeir": ["BobWeir", "bobweir", "Bob Weir"],
+    "JerryGarciaBand": ["JerryGarciaBand", "jerrygarciaband", "Jerry Garcia Band"],
+    "OtherOnes": ["OtherOnes", "TheOtherOnes", "otherones", "The Other Ones"],
+    "TheOtherOnes": ["TheOtherOnes", "OtherOnes", "theotherones", "The Other Ones"],
+    "Phish": ["Phish", "phish"],
+    "Goose": ["Goose", "GooseBand", "gooseband", "Goose Band"],
+}
+
 # Maximum recordings returned per date search (de-noises the show list)
 MAX_SHOWS_PER_SEARCH = 25

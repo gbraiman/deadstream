@@ -51,6 +51,7 @@ _TRACK_END_STATES = frozenset({
     MediaPlayerState.IDLE,
     MediaPlayerState.OFF,
     MediaPlayerState.STANDBY,
+    MediaPlayerState.PAUSED,
     "stopped",
 })
 
@@ -246,6 +247,7 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
         )
         if show:
             self.coordinator.current_show_index = self.coordinator.available_shows.index(show)
+        self._active_track_url = None
         if await self.coordinator.async_load_current_show():
             self.coordinator.is_playing = True
             await self._send_to_target_players(fresh_start=True)
@@ -326,7 +328,7 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
     def _register_track_listener(self) -> None:
         """Listen for target player going idle so we can auto-advance."""
         self._cancel_track_listener()
-        targets = [eid for eid in self.coordinator.target_players if self.hass.states.get(eid)]
+        targets = self._resolved_targets()
         if not targets:
             return
         self._track_listener_unsub = async_track_state_change_event(
@@ -364,7 +366,7 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
         if not self.coordinator.is_playing:
             return
         # If the target already recovered to playing, it wasn't a real track end.
-        for eid in self.coordinator.target_players:
+        for eid in self._resolved_targets():
             s = self.hass.states.get(eid)
             if s and s.state == MediaPlayerState.PLAYING:
                 self._register_track_listener()
@@ -376,6 +378,15 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
             self.coordinator.is_playing = False
             self.async_write_ha_state()
 
+    def _resolved_targets(self) -> list[str]:
+        targets = [eid for eid in self.coordinator.target_players if self.hass.states.get(eid)]
+        if targets:
+            return targets
+        if self.coordinator.default_player and self.hass.states.get(self.coordinator.default_player):
+            self.coordinator.target_players = [self.coordinator.default_player]
+            return [self.coordinator.default_player]
+        return []
+
     async def _send_to_target_players(self, fresh_start: bool = False) -> None:
         """Stream the current track URL to every configured target player.
 
@@ -385,10 +396,7 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
         track = self.coordinator.current_track
         if not track:
             return
-        targets = [
-            eid for eid in self.coordinator.target_players
-            if self.hass.states.get(eid)
-        ]
+        targets = self._resolved_targets()
         if not targets:
             _LOGGER.warning(
                 "No target player selected. Use the Target Player selector to choose a destination."
@@ -415,10 +423,7 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
 
     async def _call_all_targets(self, service: str, extra: dict) -> None:
         """Call a media_player service on all active target players."""
-        targets = [
-            eid for eid in self.coordinator.target_players
-            if self.hass.states.get(eid)
-        ]
+        targets = self._resolved_targets()
         if not targets:
             return
         await self.hass.services.async_call(

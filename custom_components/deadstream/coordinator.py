@@ -17,6 +17,7 @@ from .const import (
     DOMAIN,
     UPDATE_INTERVAL,
 )
+from .utils import normalize_collections
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,10 +40,7 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
             update_interval=timedelta(seconds=UPDATE_INTERVAL),
         )
         self.client = ArchiveClient(session)
-        if isinstance(collections, str):
-            self.collections = [collections]
-        else:
-            self.collections = collections or DEFAULT_COLLECTIONS
+        self.collections = normalize_collections(collections)
         self.play_lossless = play_lossless
         self.favored_taper = favored_taper
 
@@ -115,9 +113,7 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
             # Auto-load tapers for the current show so the Taper dropdown is
             # populated without requiring the user to manually re-select the show.
             if self.available_shows and not self.available_tapers:
-                await self._async_load_tapers_for_show(
-                    self.available_shows[self.current_show_index]
-                )
+                await self.async_load_tapers_for_current_show()
         except Exception as err:
             raise UpdateFailed(f"Error fetching shows: {err}") from err
 
@@ -165,6 +161,15 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
             self.current_taper_index = 0
 
         self.async_update_listeners()
+
+    async def async_load_tapers_for_current_show(self) -> None:
+        """Load tapers for the currently selected show."""
+        show = self.available_shows[self.current_show_index] if self.available_shows else None
+        if show:
+            await self._async_load_tapers_for_show(show)
+        else:
+            self.available_tapers = []
+            self.current_taper_index = 0
 
     async def _async_load_tapers_for_show(self, show: Show) -> None:
         """Fetch all recordings for show's date, sorted by downloads (best first)."""
@@ -228,6 +233,7 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
         self.current_taper_index = 0
         self.current_tracks = []
         self.current_track_index = 0
+        self.is_playing = False
         return True
 
     def prev_show(self) -> bool:
@@ -238,6 +244,7 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
         self.current_taper_index = 0
         self.current_tracks = []
         self.current_track_index = 0
+        self.is_playing = False
         return True
 
     def next_track(self) -> bool:
