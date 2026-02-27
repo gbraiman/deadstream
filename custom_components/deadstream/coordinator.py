@@ -56,6 +56,7 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
         # Level 2: all recordings (tapers) for the currently selected year/date
         self.available_tapers: list[Show] = []
         self.current_taper_index: int = 0
+        self._tapers_for_show_identifier: str | None = None
 
         # Playback
         self.current_tracks: list[Track] = []
@@ -110,10 +111,23 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
             if self.current_show_index >= len(self.available_shows):
                 self.current_show_index = 0
 
-            # Auto-load tapers for the current show so the Taper dropdown is
-            # populated without requiring the user to manually re-select the show.
-            if self.available_shows and not self.available_tapers:
+            # Keep taper list in sync with selected show. Reload when empty or
+            # when the selected show changed since last taper fetch.
+            selected_show = (
+                self.available_shows[self.current_show_index]
+                if self.available_shows and 0 <= self.current_show_index < len(self.available_shows)
+                else None
+            )
+            selected_identifier = selected_show.identifier if selected_show else None
+            if selected_show and (
+                not self.available_tapers
+                or self._tapers_for_show_identifier != selected_identifier
+            ):
                 await self.async_load_tapers_for_current_show()
+            elif not selected_show:
+                self.available_tapers = []
+                self.current_taper_index = 0
+                self._tapers_for_show_identifier = None
         except Exception as err:
             raise UpdateFailed(f"Error fetching shows: {err}") from err
 
@@ -133,6 +147,7 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
         self.current_show_index = 0
         self.available_tapers = []
         self.current_taper_index = 0
+        self._tapers_for_show_identifier = None
         self.current_tracks = []
         self.current_track_index = 0
         await self.async_refresh()
@@ -156,6 +171,7 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
         # tapers from a previously selected show if loading fails.
         self.available_tapers = []
         self.current_taper_index = 0
+        self._tapers_for_show_identifier = None
 
         show = self.available_shows[index] if 0 <= index < len(self.available_shows) else None
         if show:
@@ -169,12 +185,14 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
         if not show:
             self.available_tapers = []
             self.current_taper_index = 0
+            self._tapers_for_show_identifier = None
             self.async_update_listeners()
             return
 
         # Clear stale values before reload.
         self.available_tapers = []
         self.current_taper_index = 0
+        self._tapers_for_show_identifier = None
         await self._async_load_tapers_for_show(show)
         self.async_update_listeners()
 
@@ -185,6 +203,7 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
         except (TypeError, ValueError, AttributeError):
             self.available_tapers = []
             self.current_taper_index = 0
+            self._tapers_for_show_identifier = None
             return
 
         try:
@@ -203,6 +222,7 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
         # when archive.org returns sparse/partial metadata for this date.
         self.available_tapers = tapers or [show]
         self.current_taper_index = 0
+        self._tapers_for_show_identifier = show.identifier
 
     # ------------------------------------------------------------------
     # Taper selection (level 2 — choose a specific recording)
@@ -243,6 +263,7 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
         self.current_show_index = (self.current_show_index + 1) % len(self.available_shows)
         self.available_tapers = []
         self.current_taper_index = 0
+        self._tapers_for_show_identifier = None
         self.current_tracks = []
         self.current_track_index = 0
         self.is_playing = False
@@ -254,6 +275,7 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
         self.current_show_index = (self.current_show_index - 1) % len(self.available_shows)
         self.available_tapers = []
         self.current_taper_index = 0
+        self._tapers_for_show_identifier = None
         self.current_tracks = []
         self.current_track_index = 0
         self.is_playing = False
