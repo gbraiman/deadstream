@@ -352,11 +352,15 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
         # Some players (e.g. Sonos) go PLAYING → PAUSED → IDLE when a track ends
         # naturally, so we catch both old states here.
         # coordinator.is_playing guards against this firing on an intentional pause.
-        if (
+        natural_end = (
             old_state.state in (MediaPlayerState.PLAYING, MediaPlayerState.PAUSED)
             and new_state.state in _TRACK_END_STATES
-            and self.coordinator.is_playing
-        ):
+        )
+        paused_transition = (
+            old_state.state == MediaPlayerState.PLAYING
+            and new_state.state == MediaPlayerState.PAUSED
+        )
+        if (natural_end or paused_transition) and self.coordinator.is_playing:
             self.hass.async_create_task(self._auto_advance())
 
     async def _auto_advance(self) -> None:

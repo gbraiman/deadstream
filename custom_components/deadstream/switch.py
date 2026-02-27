@@ -88,6 +88,7 @@ class CollectionSwitch(CoordinatorEntity[DeadstreamCoordinator], SwitchEntity):
     async def async_turn_on(self, **kwargs) -> None:
         if self._collection not in self.coordinator.collections:
             self.coordinator.collections = [*self.coordinator.collections, self._collection]
+            self.coordinator.reset_tapers_and_tracks()
             await self.coordinator.async_refresh()
         self.async_write_ha_state()
 
@@ -101,5 +102,6 @@ class CollectionSwitch(CoordinatorEntity[DeadstreamCoordinator], SwitchEntity):
         self.coordinator.collections = [
             c for c in self.coordinator.collections if c != self._collection
         ]
+        self.coordinator.reset_tapers_and_tracks()
         await self.coordinator.async_refresh()
         self.async_write_ha_state()
