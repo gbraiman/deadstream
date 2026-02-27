@@ -278,8 +278,15 @@ class ArchiveClient:
         include_downloads: bool = False,
     ) -> list[Show]:
         shows: list[Show] = []
+        collection_lookup = {c.lower(): c for c in collections}
+
+        def _first_text(value: Any) -> str:
+            if isinstance(value, list):
+                value = value[0] if value else ""
+            return str(value or "")
+
         for item in items:
-            identifier = item.get("identifier", "")
+            identifier = _first_text(item.get("identifier", ""))
             if not identifier:
                 continue
             downloads = 0
@@ -294,19 +301,25 @@ class ArchiveClient:
             # to collections[0] if none match (shouldn't happen but keeps us safe).
             raw_coll = item.get("collection", [])
             if isinstance(raw_coll, list):
-                collection = next((c for c in raw_coll if c in collections), collections[0])
+                collection = next(
+                    (
+                        collection_lookup.get(str(c).lower(), "")
+                        for c in raw_coll
+                        if str(c).lower() in collection_lookup
+                    ),
+                    collections[0],
+                )
             else:
-                collection = raw_coll if raw_coll in collections else collections[0]
+                collection = collection_lookup.get(str(raw_coll).lower(), collections[0])
 
-            taper_raw = item.get("taper", "")
-            taper = taper_raw[0] if isinstance(taper_raw, list) else (taper_raw or "")
+            taper = _first_text(item.get("taper", ""))
 
             shows.append(Show(
                 identifier=identifier,
-                date=item.get("date", ""),
-                title=item.get("title", "Unknown Show"),
-                venue=item.get("venue", ""),
-                coverage=item.get("coverage", ""),
+                date=_first_text(item.get("date", "")),
+                title=_first_text(item.get("title", "Unknown Show")) or "Unknown Show",
+                venue=_first_text(item.get("venue", "")),
+                coverage=_first_text(item.get("coverage", "")),
                 taper=taper,
                 collection=collection,
                 downloads=downloads,

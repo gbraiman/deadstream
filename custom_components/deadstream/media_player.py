@@ -86,6 +86,7 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
         }
         self._volume: float = 0.5
         self._track_listener_unsub = None
+        self._active_track_url: str | None = None
 
     @property
     def name(self) -> str:
@@ -185,13 +186,20 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
             if not await self.coordinator.async_load_current_show():
                 _LOGGER.warning("No tracks to play")
                 return
-            self.coordinator.is_playing = True
-            await self._send_to_target_players(fresh_start=True)
-        else:
-            # Tracks are already loaded (we were paused) — just resume.
-            self.coordinator.is_playing = True
+
+        track = self.coordinator.current_track
+        if not track:
+            _LOGGER.warning("No track selected to play")
+            return
+
+        self.coordinator.is_playing = True
+        if self._active_track_url == track.url:
+            # Same track was already loaded on the target player, so resume.
             await self._call_all_targets("media_play", {})
             self._register_track_listener()
+        else:
+            # New show/taper selection: replace whatever is on the target player.
+            await self._send_to_target_players(fresh_start=True)
         self.async_write_ha_state()
 
     async def async_media_pause(self) -> None:
@@ -202,6 +210,7 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
 
     async def async_media_stop(self) -> None:
         self._cancel_track_listener()
+        self._active_track_url = None
         self.coordinator.is_playing = False
         self.coordinator.current_tracks = []
         self.coordinator.current_track_index = 0
@@ -336,7 +345,8 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
         # naturally, so we catch both old states here.
         # coordinator.is_playing guards against this firing on an intentional pause.
         if (
-            old_state.state in (MediaPlayerState.PLAYING, MediaPlayerState.PAUSED)
+            old_state.state not in _TRACK_END_STATES
+            and old_state.state not in ("unknown", "unavailable")
             and new_state.state in _TRACK_END_STATES
             and self.coordinator.is_playing
         ):
@@ -399,6 +409,7 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
                 "media_content_type": MediaType.MUSIC,
             },
         )
+        self._active_track_url = track.url
         # Register listener so the next track plays automatically when this one ends.
         self._register_track_listener()
 
