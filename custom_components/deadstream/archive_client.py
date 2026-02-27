@@ -30,6 +30,21 @@ def _q(value: str) -> str:
     escaped = value.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
 
+def _collection_clause(collection: str) -> str:
+    """Return a resilient Solr clause for a single collection id."""
+    variants = [collection]
+    lowered = collection.lower()
+    if lowered != collection:
+        variants.append(lowered)
+    clauses = [f"collection:{_q(v)}" for v in variants]
+    return clauses[0] if len(clauses) == 1 else f"({' OR '.join(clauses)})"
+
+
+def _collections_clause(collections: list[str]) -> str:
+    """Return OR-ed collection clauses for one or more collection ids."""
+    return " OR ".join(_collection_clause(c) for c in collections)
+
+
 
 
 @dataclass
@@ -138,7 +153,7 @@ class ArchiveClient:
             f'date:"{y:04d}-{month:02d}-{day:02d}"'
             for y in range(1965, current_year + 1)
         )
-        query = f"collection:{_q(collection)} AND mediatype:(etree OR audio) AND ({date_clauses})"
+        query = f"{_collection_clause(collection)} AND mediatype:(etree OR audio) AND ({date_clauses})"
         params = {
             "q": query,
             "fields": ",".join(SEARCH_FIELDS),
@@ -151,7 +166,7 @@ class ArchiveClient:
         # If nothing came back, retry without the mediatype filter — some collections
         # (e.g. newer bands) may use a mediatype not covered by etree/audio.
         if not items:
-            fallback_query = f"collection:{_q(collection)} AND ({date_clauses})"
+            fallback_query = f"{_collection_clause(collection)} AND ({date_clauses})"
             _LOGGER.debug(
                 "archive search [%s %02d/%02d]: no results with mediatype filter, retrying without",
                 collection, month, day,
@@ -179,7 +194,7 @@ class ArchiveClient:
         The favored taper, if set, is always moved to position 0.
         """
         date_str = f"{year:04d}-{month:02d}-{day:02d}"
-        collection_query = " OR ".join(f"collection:{_q(c)}" for c in collections)
+        collection_query = _collections_clause(collections)
         query = (
             f"({collection_query}) AND mediatype:(etree OR audio)"
             f' AND date:"{date_str}"'
@@ -229,7 +244,7 @@ class ArchiveClient:
         favored_taper: str = "",
     ) -> list[Show]:
         query_parts = [
-            f"({' OR '.join(f'collection:{_q(c)}' for c in collections)})",
+            f"({_collections_clause(collections)})",
             "mediatype:(etree OR audio)",
         ]
         if year:
