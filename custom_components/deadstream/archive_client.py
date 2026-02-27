@@ -25,6 +25,13 @@ TAPER_SEARCH_FIELDS = [*SEARCH_FIELDS, "downloads"]
 SEARCH_SORTS = ["date asc"]
 
 
+def _q(value: str) -> str:
+    """Quote a Solr value for exact matching."""
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+
 @dataclass
 class Track:
     """Represents a single audio track."""
@@ -131,7 +138,7 @@ class ArchiveClient:
             f'date:"{y:04d}-{month:02d}-{day:02d}"'
             for y in range(1965, current_year + 1)
         )
-        query = f"collection:{collection} AND mediatype:(etree OR audio) AND ({date_clauses})"
+        query = f"collection:{_q(collection)} AND mediatype:(etree OR audio) AND ({date_clauses})"
         params = {
             "q": query,
             "fields": ",".join(SEARCH_FIELDS),
@@ -144,7 +151,7 @@ class ArchiveClient:
         # If nothing came back, retry without the mediatype filter — some collections
         # (e.g. newer bands) may use a mediatype not covered by etree/audio.
         if not items:
-            fallback_query = f"collection:{collection} AND ({date_clauses})"
+            fallback_query = f"collection:{_q(collection)} AND ({date_clauses})"
             _LOGGER.debug(
                 "archive search [%s %02d/%02d]: no results with mediatype filter, retrying without",
                 collection, month, day,
@@ -172,8 +179,9 @@ class ArchiveClient:
         The favored taper, if set, is always moved to position 0.
         """
         date_str = f"{year:04d}-{month:02d}-{day:02d}"
+        collection_query = " OR ".join(f"collection:{_q(c)}" for c in collections)
         query = (
-            f"collection:({' OR '.join(collections)}) AND mediatype:(etree OR audio)"
+            f"({collection_query}) AND mediatype:(etree OR audio)"
             f' AND date:"{date_str}"'
         )
         params = {
@@ -188,7 +196,7 @@ class ArchiveClient:
 
         if not items:
             fallback_query = (
-                f"collection:({' OR '.join(collections)})"
+                f"({collection_query})"
                 f' AND date:"{date_str}"'
             )
             _LOGGER.debug(
@@ -221,7 +229,7 @@ class ArchiveClient:
         favored_taper: str = "",
     ) -> list[Show]:
         query_parts = [
-            f"collection:({' OR '.join(collections)})",
+            f"({' OR '.join(f'collection:{_q(c)}' for c in collections)})",
             "mediatype:(etree OR audio)",
         ]
         if year:
@@ -292,7 +300,16 @@ class ArchiveClient:
                 raw = str(raw_collection or "")
                 candidates = [c.strip() for c in re.split(r"[,;]", raw)] if raw else []
 
+            # archive.org occasionally returns collection as a JSON-ish string
+            # (e.g. '["GratefulDead","etree"]'). Strip simple wrappers so
+            # configured collection matching still works.
+            cleaned: list[str] = []
             for candidate in candidates:
+                c = candidate.strip().strip("[]").strip().strip("\"'")
+                if c:
+                    cleaned.append(c)
+
+            for candidate in cleaned:
                 if candidate.lower() in collection_lookup:
                     return collection_lookup[candidate.lower()]
             return collections[0]

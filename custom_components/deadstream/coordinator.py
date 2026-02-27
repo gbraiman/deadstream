@@ -115,9 +115,7 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
             # Auto-load tapers for the current show so the Taper dropdown is
             # populated without requiring the user to manually re-select the show.
             if self.available_shows and not self.available_tapers:
-                await self._async_load_tapers_for_show(
-                    self.available_shows[self.current_show_index]
-                )
+                await self.async_load_tapers_for_current_show()
         except Exception as err:
             raise UpdateFailed(f"Error fetching shows: {err}") from err
 
@@ -165,6 +163,15 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
             self.current_taper_index = 0
 
         self.async_update_listeners()
+
+    async def async_load_tapers_for_current_show(self) -> None:
+        """Load tapers for the currently selected show."""
+        show = self.available_shows[self.current_show_index] if self.available_shows else None
+        if show:
+            await self._async_load_tapers_for_show(show)
+        else:
+            self.available_tapers = []
+            self.current_taper_index = 0
 
     async def _async_load_tapers_for_show(self, show: Show) -> None:
         """Fetch all recordings for show's date, sorted by downloads (best first)."""

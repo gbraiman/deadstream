@@ -100,6 +100,7 @@ def _register_services(hass: HomeAssistant) -> None:
         coordinator = _get_coordinator(hass)
         if coordinator:
             coordinator.next_show()
+            await coordinator.async_load_tapers_for_current_show()
             coordinator.current_tracks = []
             coordinator.current_track_index = 0
             coordinator.async_update_listeners()
@@ -108,6 +109,7 @@ def _register_services(hass: HomeAssistant) -> None:
         coordinator = _get_coordinator(hass)
         if coordinator:
             coordinator.prev_show()
+            await coordinator.async_load_tapers_for_current_show()
             coordinator.current_tracks = []
             coordinator.current_track_index = 0
             coordinator.async_update_listeners()
