@@ -51,7 +51,6 @@ _TRACK_END_STATES = frozenset({
     MediaPlayerState.IDLE,
     MediaPlayerState.OFF,
     MediaPlayerState.STANDBY,
-    MediaPlayerState.PAUSED,
     "stopped",
 })
 
@@ -347,8 +346,7 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
         # naturally, so we catch both old states here.
         # coordinator.is_playing guards against this firing on an intentional pause.
         if (
-            old_state.state not in _TRACK_END_STATES
-            and old_state.state not in ("unknown", "unavailable")
+            old_state.state in (MediaPlayerState.PLAYING, MediaPlayerState.PAUSED)
             and new_state.state in _TRACK_END_STATES
             and self.coordinator.is_playing
         ):
