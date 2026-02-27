@@ -278,8 +278,27 @@ class ArchiveClient:
         include_downloads: bool = False,
     ) -> list[Show]:
         shows: list[Show] = []
+        collection_lookup = {c.lower(): c for c in collections}
+
+        def _first_text(value: Any) -> str:
+            if isinstance(value, list):
+                value = value[0] if value else ""
+            return str(value or "")
+
+        def _normalize_collection(raw_collection: Any) -> str:
+            if isinstance(raw_collection, list):
+                candidates = [str(c).strip() for c in raw_collection]
+            else:
+                raw = str(raw_collection or "")
+                candidates = [c.strip() for c in re.split(r"[,;]", raw)] if raw else []
+
+            for candidate in candidates:
+                if candidate.lower() in collection_lookup:
+                    return collection_lookup[candidate.lower()]
+            return collections[0]
+
         for item in items:
-            identifier = item.get("identifier", "")
+            identifier = _first_text(item.get("identifier", ""))
             if not identifier:
                 continue
             downloads = 0
@@ -293,20 +312,16 @@ class ArchiveClient:
             # first element that matches one of our configured collections; fall back
             # to collections[0] if none match (shouldn't happen but keeps us safe).
             raw_coll = item.get("collection", [])
-            if isinstance(raw_coll, list):
-                collection = next((c for c in raw_coll if c in collections), collections[0])
-            else:
-                collection = raw_coll if raw_coll in collections else collections[0]
+            collection = _normalize_collection(raw_coll)
 
-            taper_raw = item.get("taper", "")
-            taper = taper_raw[0] if isinstance(taper_raw, list) else (taper_raw or "")
+            taper = _first_text(item.get("taper", ""))
 
             shows.append(Show(
                 identifier=identifier,
-                date=item.get("date", ""),
-                title=item.get("title", "Unknown Show"),
-                venue=item.get("venue", ""),
-                coverage=item.get("coverage", ""),
+                date=_first_text(item.get("date", "")),
+                title=_first_text(item.get("title", "Unknown Show")) or "Unknown Show",
+                venue=_first_text(item.get("venue", "")),
+                coverage=_first_text(item.get("coverage", "")),
                 taper=taper,
                 collection=collection,
                 downloads=downloads,
