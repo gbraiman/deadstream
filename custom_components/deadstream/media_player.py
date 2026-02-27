@@ -50,7 +50,7 @@ SUPPORTED_FEATURES = (
 _TRACK_END_STATES = frozenset({
     MediaPlayerState.IDLE,
     MediaPlayerState.OFF,
-    MediaPlayerState.STANDBY,
+    "standby",
     "stopped",
 })
 

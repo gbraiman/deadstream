@@ -187,26 +187,58 @@ class TaperSelect(_DeadstreamSelect):
     def __init__(self, coordinator: DeadstreamCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry, "taper_select")
 
+    def _taper_options(self) -> list[str]:
+        """Return stable taper options; disambiguate duplicate labels."""
+        tapers = self.coordinator.available_tapers
+        labels = [t.taper_label for t in tapers]
+        if not labels:
+            return []
+
+        counts: dict[str, int] = {}
+        for label in labels:
+            counts[label] = counts.get(label, 0) + 1
+
+        options: list[str] = []
+        used: dict[str, int] = {}
+        for idx, label in enumerate(labels):
+            if counts[label] <= 1:
+                options.append(label)
+                continue
+            used[label] = used.get(label, 0) + 1
+            ident = tapers[idx].identifier
+            short_id = ident[:10] if ident else str(used[label])
+            options.append(f"{label} [{short_id}]")
+        return options
+
     @property
     def options(self) -> list[str]:
-        tapers = self.coordinator.available_tapers
-        if not tapers:
-            return [_NO_TAPERS]
-        return [t.taper_label for t in tapers]
+        return self._taper_options() or [_NO_TAPERS]
 
     @property
     def current_option(self) -> str | None:
-        tapers = self.coordinator.available_tapers
-        if not tapers:
+        opts = self._taper_options()
+        if not opts:
             return None
         idx = self.coordinator.current_taper_index
-        n = len(tapers)
-        return tapers[max(0, min(idx, n - 1))].taper_label
+        n = len(opts)
+        return opts[max(0, min(idx, n - 1))]
 
     async def async_select_option(self, option: str) -> None:
-        opts = self.options
+        opts = self._taper_options()
+        selected_idx: int | None = None
+
         if option in opts:
-            self.coordinator.select_taper(opts.index(option))
+            selected_idx = opts.index(option)
+        else:
+            normalized = option.strip().lower()
+            for idx, candidate in enumerate(opts):
+                if candidate.strip().lower() == normalized:
+                    selected_idx = idx
+                    break
+
+        if selected_idx is not None and 0 <= selected_idx < len(self.coordinator.available_tapers):
+            self.coordinator.select_taper(selected_idx)
+
         self.async_write_ha_state()
 
     @callback
