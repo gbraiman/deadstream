@@ -7,6 +7,7 @@ import logging
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -19,7 +20,6 @@ MONTHS = [calendar.month_name[m] for m in range(1, 13)]
 DAYS = [str(d) for d in range(1, 32)]
 
 _NO_SHOWS = "No shows available"
-_NO_TAPERS = "Select a show first"
 _NO_PLAYER = "(none)"
 
 
@@ -29,11 +29,18 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: DeadstreamCoordinator = hass.data[DOMAIN][entry.entry_id]
+
+    # Remove legacy taper select entity now that taper choice is automatic.
+    ent_reg = er.async_get(hass)
+    legacy_unique_id = f"{entry.entry_id}_taper_select"
+    for reg_entry in list(ent_reg.entities.values()):
+        if reg_entry.config_entry_id == entry.entry_id and reg_entry.unique_id == legacy_unique_id:
+            ent_reg.async_remove(reg_entry.entity_id)
+
     async_add_entities([
         MonthSelect(coordinator, entry),
         DaySelect(coordinator, entry),
         ShowSelect(coordinator, entry),
-        TaperSelect(coordinator, entry),
         TargetPlayerSelect(coordinator, entry),
     ])
 
@@ -172,78 +179,6 @@ class ShowSelect(_DeadstreamSelect):
     def _handle_coordinator_update(self) -> None:
         self.async_write_ha_state()
 
-
-class TaperSelect(_DeadstreamSelect):
-    """All recordings for the currently selected show date, best-first.
-
-    Populated automatically when a show is chosen in ShowSelect.
-    The first option is the most-played recording (highest archive.org
-    download count). Selecting a different entry swaps the active recording.
-    """
-
-    _attr_name = "Taper"
-    _attr_icon = "mdi:microphone-variant"
-
-    def __init__(self, coordinator: DeadstreamCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator, entry, "taper_select")
-
-    def _taper_options(self) -> list[str]:
-        """Return stable taper options; disambiguate duplicate labels."""
-        tapers = self.coordinator.available_tapers
-        labels = [t.taper_label for t in tapers]
-        if not labels:
-            return []
-
-        counts: dict[str, int] = {}
-        for label in labels:
-            counts[label] = counts.get(label, 0) + 1
-
-        options: list[str] = []
-        used: dict[str, int] = {}
-        for idx, label in enumerate(labels):
-            if counts[label] <= 1:
-                options.append(label)
-                continue
-            used[label] = used.get(label, 0) + 1
-            ident = tapers[idx].identifier
-            short_id = ident[:10] if ident else str(used[label])
-            options.append(f"{label} [{short_id}]")
-        return options
-
-    @property
-    def options(self) -> list[str]:
-        return self._taper_options() or [_NO_TAPERS]
-
-    @property
-    def current_option(self) -> str | None:
-        opts = self._taper_options()
-        if not opts:
-            return None
-        idx = self.coordinator.current_taper_index
-        n = len(opts)
-        return opts[max(0, min(idx, n - 1))]
-
-    async def async_select_option(self, option: str) -> None:
-        opts = self._taper_options()
-        selected_idx: int | None = None
-
-        if option in opts:
-            selected_idx = opts.index(option)
-        else:
-            normalized = option.strip().lower()
-            for idx, candidate in enumerate(opts):
-                if candidate.strip().lower() == normalized:
-                    selected_idx = idx
-                    break
-
-        if selected_idx is not None and 0 <= selected_idx < len(self.coordinator.available_tapers):
-            self.coordinator.select_taper(selected_idx)
-
-        self.async_write_ha_state()
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
 
 
 class TargetPlayerSelect(_DeadstreamSelect):
