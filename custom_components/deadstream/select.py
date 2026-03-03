@@ -7,6 +7,7 @@ import logging
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -19,7 +20,6 @@ MONTHS = [calendar.month_name[m] for m in range(1, 13)]
 DAYS = [str(d) for d in range(1, 32)]
 
 _NO_SHOWS = "No shows available"
-_NO_TAPERS = "Select a show first"
 _NO_PLAYER = "(none)"
 
 
@@ -29,11 +29,18 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: DeadstreamCoordinator = hass.data[DOMAIN][entry.entry_id]
+
+    # Remove legacy taper select entity now that taper choice is automatic.
+    ent_reg = er.async_get(hass)
+    legacy_unique_id = f"{entry.entry_id}_taper_select"
+    for reg_entry in list(ent_reg.entities.values()):
+        if reg_entry.config_entry_id == entry.entry_id and reg_entry.unique_id == legacy_unique_id:
+            ent_reg.async_remove(reg_entry.entity_id)
+
     async_add_entities([
         MonthSelect(coordinator, entry),
         DaySelect(coordinator, entry),
         ShowSelect(coordinator, entry),
-        TaperSelect(coordinator, entry),
         TargetPlayerSelect(coordinator, entry),
     ])
 
@@ -114,69 +121,64 @@ class ShowSelect(_DeadstreamSelect):
             base = year
         return f"{base} \u2014 {loc}" if loc else base
 
+    def _show_options(self) -> list[str]:
+        """Return stable display options; disambiguate duplicate labels."""
+        shows = self.coordinator.available_shows
+        base_labels = [self._show_label(i) for i in range(len(shows))]
+        if not base_labels:
+            return []
+
+        counts: dict[str, int] = {}
+        for label in base_labels:
+            counts[label] = counts.get(label, 0) + 1
+
+        used: dict[str, int] = {}
+        options: list[str] = []
+        for idx, label in enumerate(base_labels):
+            if counts[label] <= 1:
+                options.append(label)
+                continue
+            used[label] = used.get(label, 0) + 1
+            ident = shows[idx].identifier
+            short_id = ident[:10] if ident else str(used[label])
+            options.append(f"{label} [{short_id}]")
+        return options
+
     @property
     def options(self) -> list[str]:
-        shows = self.coordinator.available_shows
-        return [self._show_label(i) for i in range(len(shows))] or [_NO_SHOWS]
+        return self._show_options() or [_NO_SHOWS]
 
     @property
     def current_option(self) -> str | None:
-        if not self.coordinator.available_shows:
+        opts = self._show_options()
+        if not opts:
             return None
         idx = self.coordinator.current_show_index
-        n = len(self.coordinator.available_shows)
-        return self._show_label(max(0, min(idx, n - 1)))
+        n = len(opts)
+        return opts[max(0, min(idx, n - 1))]
 
     async def async_select_option(self, option: str) -> None:
-        opts = self.options
+        opts = self._show_options()
+        selected_idx: int | None = None
+
         if option in opts:
-            await self.coordinator.async_select_show(opts.index(option))
+            selected_idx = opts.index(option)
+        else:
+            normalized = option.strip().lower()
+            for idx, candidate in enumerate(opts):
+                if candidate.strip().lower() == normalized:
+                    selected_idx = idx
+                    break
+
+        if selected_idx is not None and 0 <= selected_idx < len(self.coordinator.available_shows):
+            await self.coordinator.async_select_show(selected_idx)
+
         self.async_write_ha_state()
 
     @callback
     def _handle_coordinator_update(self) -> None:
         self.async_write_ha_state()
 
-
-class TaperSelect(_DeadstreamSelect):
-    """All recordings for the currently selected show date, best-first.
-
-    Populated automatically when a show is chosen in ShowSelect.
-    The first option is the most-played recording (highest archive.org
-    download count). Selecting a different entry swaps the active recording.
-    """
-
-    _attr_name = "Taper"
-    _attr_icon = "mdi:microphone-variant"
-
-    def __init__(self, coordinator: DeadstreamCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator, entry, "taper_select")
-
-    @property
-    def options(self) -> list[str]:
-        tapers = self.coordinator.available_tapers
-        if not tapers:
-            return [_NO_TAPERS]
-        return [t.taper_label for t in tapers]
-
-    @property
-    def current_option(self) -> str | None:
-        tapers = self.coordinator.available_tapers
-        if not tapers:
-            return None
-        idx = self.coordinator.current_taper_index
-        n = len(tapers)
-        return tapers[max(0, min(idx, n - 1))].taper_label
-
-    async def async_select_option(self, option: str) -> None:
-        opts = self.options
-        if option in opts:
-            self.coordinator.select_taper(opts.index(option))
-        self.async_write_ha_state()
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        self.async_write_ha_state()
 
 
 class TargetPlayerSelect(_DeadstreamSelect):

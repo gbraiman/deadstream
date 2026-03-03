@@ -16,6 +16,8 @@ from .const import (
     LOSSLESS_FORMATS,
     LOSSY_FORMATS,
     MAX_SHOWS_PER_SEARCH,
+    COLLECTION_LABELS,
+    COLLECTION_QUERY_ALIASES,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -24,6 +26,99 @@ SEARCH_FIELDS = ["identifier", "date", "title", "venue", "coverage", "taper", "c
 TAPER_SEARCH_FIELDS = [*SEARCH_FIELDS, "downloads"]
 SEARCH_SORTS = ["date asc"]
 
+
+def _q(value: str) -> str:
+    """Quote a Solr value for exact matching."""
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+def _collection_clause(collection: str) -> str:
+    """Return resilient archive clauses for a configured band id.
+
+    We match both collection and creator fields using aliases because archive.org
+    metadata can vary by uploader and ingest path.
+    """
+    aliases = COLLECTION_QUERY_ALIASES.get(collection, [collection, COLLECTION_LABELS.get(collection, collection)])
+
+    normalized: list[str] = []
+    for alias in aliases:
+        if not alias:
+            continue
+        cleaned = str(alias).strip()
+        if cleaned and cleaned not in normalized:
+            normalized.append(cleaned)
+
+    # include lowercase variants too
+    for alias in list(normalized):
+        lowered = alias.lower()
+        if lowered not in normalized:
+            normalized.append(lowered)
+
+    clauses: list[str] = []
+    for value in normalized:
+        clauses.append(f"collection:{_q(value)}")
+        clauses.append(f"creator:{_q(value)}")
+        if re.fullmatch(r"[A-Za-z0-9_-]+", value):
+            clauses.append(f"collection:{value}")
+            clauses.append(f"creator:{value}")
+
+    unique = list(dict.fromkeys(clauses))
+    return unique[0] if len(unique) == 1 else f"({' OR '.join(unique)})"
+
+
+def _collections_clause(collections: list[str]) -> str:
+    """Return OR-ed collection clauses for one or more collection ids."""
+    return " OR ".join(f"({_collection_clause(c)})" for c in collections)
+
+
+def _dedupe_items(items: list[dict]) -> list[dict]:
+    """Deduplicate archive search results by identifier, preserving order."""
+    seen: set[str] = set()
+    out: list[dict] = []
+    for item in items:
+        identifier = str(item.get("identifier", ""))
+        if not identifier or identifier in seen:
+            continue
+        seen.add(identifier)
+        out.append(item)
+    return out
+
+
+def _with_mediatype(query: str) -> str:
+    return f"{query} AND mediatype:(etree OR audio)"
+
+
+def _parse_duration_seconds(value: Any) -> float:
+    """Parse archive duration values into seconds."""
+    if value is None:
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    text = str(value).strip()
+    if not text:
+        return 0.0
+
+    # Numeric strings are already seconds.
+    try:
+        return float(text)
+    except ValueError:
+        pass
+
+    # Handle M:SS or H:MM:SS style durations.
+    parts = text.split(":")
+    if len(parts) in (2, 3):
+        try:
+            nums = [float(p) for p in parts]
+        except ValueError:
+            return 0.0
+        if len(nums) == 2:
+            minutes, seconds = nums
+            return minutes * 60 + seconds
+        hours, minutes, seconds = nums
+        return hours * 3600 + minutes * 60 + seconds
+
+    return 0.0
 
 @dataclass
 class Track:
@@ -128,28 +223,23 @@ class ArchiveClient:
         """Fetch all recordings in one collection for a given month/day across all years."""
         current_year = date.today().year
         date_clauses = " OR ".join(
-            f'date:"{y:04d}-{month:02d}-{day:02d}"'
+            (
+                f'(date:"{y:04d}-{month:02d}-{day:02d}" '
+                f'OR date:{y:04d}-{month:02d}-{day:02d}*)'
+            )
             for y in range(1965, current_year + 1)
         )
-        query = f"collection:{collection} AND mediatype:(etree OR audio) AND ({date_clauses})"
+        base_query = f"{_collection_clause(collection)} AND ({date_clauses})"
+        query = _with_mediatype(base_query)
         params = {
-            "q": query,
             "fields": ",".join(SEARCH_FIELDS),
             "sorts": "date asc",
             "count": "500",
         }
         _LOGGER.debug("archive search [%s %02d/%02d]: %s", collection, month, day, query)
-        items = await self._fetch_items(params)
-
-        # If nothing came back, retry without the mediatype filter — some collections
-        # (e.g. newer bands) may use a mediatype not covered by etree/audio.
-        if not items:
-            fallback_query = f"collection:{collection} AND ({date_clauses})"
-            _LOGGER.debug(
-                "archive search [%s %02d/%02d]: no results with mediatype filter, retrying without",
-                collection, month, day,
-            )
-            items = await self._fetch_items({**params, "q": fallback_query})
+        items_with_media = await self._fetch_items({**params, "q": query})
+        items_without_media = await self._fetch_items({**params, "q": base_query})
+        items = _dedupe_items([*items_with_media, *items_without_media])
 
         shows = self._parse_items(items, [collection], favored_taper)
         _LOGGER.info("archive search [%s %02d/%02d]: %d raw items → %d shows", collection, month, day, len(items), len(shows))
@@ -172,30 +262,20 @@ class ArchiveClient:
         The favored taper, if set, is always moved to position 0.
         """
         date_str = f"{year:04d}-{month:02d}-{day:02d}"
-        query = (
-            f"collection:({' OR '.join(collections)}) AND mediatype:(etree OR audio)"
-            f' AND date:"{date_str}"'
-        )
+        date_query = f'(date:"{date_str}" OR date:{date_str}*)'
+        collection_query = _collections_clause(collections)
+        base_query = f"({collection_query}) AND {date_query}"
+        query = _with_mediatype(base_query)
         params = {
-            "q": query,
             "fields": ",".join(TAPER_SEARCH_FIELDS),
             "sorts": "downloads desc",
-            "count": "50",
+            "count": "200",
         }
 
         _LOGGER.debug("taper search [%s %04d-%02d-%02d]: %s", collections, year, month, day, query)
-        items = await self._fetch_items(params)
-
-        if not items:
-            fallback_query = (
-                f"collection:({' OR '.join(collections)})"
-                f' AND date:"{date_str}"'
-            )
-            _LOGGER.debug(
-                "taper search [%04d-%02d-%02d]: no results with mediatype filter, retrying without",
-                year, month, day,
-            )
-            items = await self._fetch_items({**params, "q": fallback_query})
+        items_with_media = await self._fetch_items({**params, "q": query})
+        items_without_media = await self._fetch_items({**params, "q": base_query})
+        items = _dedupe_items([*items_with_media, *items_without_media])
 
         shows = self._parse_items(items, collections, favored_taper, include_downloads=True)
 
@@ -221,13 +301,15 @@ class ArchiveClient:
         favored_taper: str = "",
     ) -> list[Show]:
         query_parts = [
-            f"collection:({' OR '.join(collections)})",
-            "mediatype:(etree OR audio)",
+            f"({_collections_clause(collections)})",
         ]
         if year:
             if month:
                 if day:
-                    query_parts.append(f'date:"{year:04d}-{month:02d}-{day:02d}"')
+                    query_parts.append(
+                        f'(date:"{year:04d}-{month:02d}-{day:02d}" '
+                        f'OR date:{year:04d}-{month:02d}-{day:02d}*)'
+                    )
                 else:
                     query_parts.append(
                         f"date:[{year:04d}-{month:02d}-01 TO {year:04d}-{month:02d}-31]"
@@ -235,14 +317,17 @@ class ArchiveClient:
             else:
                 query_parts.append(f"date:[{year:04d}-01-01 TO {year:04d}-12-31]")
 
+        base_query = " AND ".join(query_parts)
+        query = _with_mediatype(base_query)
         params = {
-            "q": " AND ".join(query_parts),
             "fields": ",".join(SEARCH_FIELDS),
             "sorts": ",".join(SEARCH_SORTS),
-            "count": str(MAX_SHOWS_PER_SEARCH * 4),
+            "count": str(MAX_SHOWS_PER_SEARCH * 6),
         }
 
-        items = await self._fetch_items(params)
+        items_with_media = await self._fetch_items({**params, "q": query})
+        items_without_media = await self._fetch_items({**params, "q": base_query})
+        items = _dedupe_items([*items_with_media, *items_without_media])
         shows = self._parse_items(items, collections, favored_taper)
 
         seen: set[str] = set()
@@ -292,9 +377,27 @@ class ArchiveClient:
                 raw = str(raw_collection or "")
                 candidates = [c.strip() for c in re.split(r"[,;]", raw)] if raw else []
 
+            # archive.org occasionally returns collection as a JSON-ish string
+            # (e.g. '["GratefulDead","etree"]'). Strip simple wrappers so
+            # configured collection matching still works.
+            cleaned: list[str] = []
             for candidate in candidates:
+                c = candidate.strip().strip("[]").strip().strip("\"'")
+                if c:
+                    cleaned.append(c)
+
+            for candidate in cleaned:
                 if candidate.lower() in collection_lookup:
                     return collection_lookup[candidate.lower()]
+
+            # If none matched exactly, try loose containment to catch variants
+            # like "phishin" or accidental quoting wrappers from upstream feeds.
+            for candidate in cleaned:
+                c_low = candidate.lower()
+                for known_low, known in collection_lookup.items():
+                    if known_low in c_low or c_low in known_low:
+                        return known
+
             return collections[0]
 
         for item in items:
@@ -366,10 +469,7 @@ class ArchiveClient:
             if not chosen:
                 continue
             name = chosen.get("name", "")
-            try:
-                duration = float(chosen.get("length", 0))
-            except (ValueError, TypeError):
-                duration = 0.0
+            duration = _parse_duration_seconds(chosen.get("length", 0))
             tracks.append(Track(
                 name=name,
                 title=chosen.get("title", "") or stem,

@@ -25,6 +25,7 @@ from .const import (
     SERVICE_TODAY_IN_HISTORY,
 )
 from .coordinator import DeadstreamCoordinator
+from .utils import normalize_collections
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = DeadstreamCoordinator(
         hass=hass,
         session=session,
-        collections=entry.options.get(CONF_COLLECTIONS, entry.data.get(CONF_COLLECTIONS, DEFAULT_COLLECTIONS)),
+        collections=normalize_collections(entry.options.get(CONF_COLLECTIONS, entry.data.get(CONF_COLLECTIONS, DEFAULT_COLLECTIONS))),
         play_lossless=entry.options.get(CONF_PLAY_LOSSLESS, entry.data.get(CONF_PLAY_LOSSLESS, DEFAULT_PLAY_LOSSLESS)),
         favored_taper=entry.options.get(CONF_FAVORED_TAPER, entry.data.get(CONF_FAVORED_TAPER, DEFAULT_FAVORED_TAPER)),
     )
@@ -100,6 +101,7 @@ def _register_services(hass: HomeAssistant) -> None:
         coordinator = _get_coordinator(hass)
         if coordinator:
             coordinator.next_show()
+            await coordinator.async_load_tapers_for_current_show()
             coordinator.current_tracks = []
             coordinator.current_track_index = 0
             coordinator.async_update_listeners()
@@ -108,6 +110,7 @@ def _register_services(hass: HomeAssistant) -> None:
         coordinator = _get_coordinator(hass)
         if coordinator:
             coordinator.prev_show()
+            await coordinator.async_load_tapers_for_current_show()
             coordinator.current_tracks = []
             coordinator.current_track_index = 0
             coordinator.async_update_listeners()

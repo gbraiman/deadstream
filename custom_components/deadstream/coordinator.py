@@ -17,6 +17,7 @@ from .const import (
     DOMAIN,
     UPDATE_INTERVAL,
 )
+from .utils import normalize_collections
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,10 +40,7 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
             update_interval=timedelta(seconds=UPDATE_INTERVAL),
         )
         self.client = ArchiveClient(session)
-        if isinstance(collections, str):
-            self.collections = [collections]
-        else:
-            self.collections = collections or DEFAULT_COLLECTIONS
+        self.collections = normalize_collections(collections)
         self.play_lossless = play_lossless
         self.favored_taper = favored_taper
 
@@ -58,6 +56,9 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
         # Level 2: all recordings (tapers) for the currently selected year/date
         self.available_tapers: list[Show] = []
         self.current_taper_index: int = 0
+        self._tapers_for_show_identifier: str | None = None
+        self._taper_request_seq: int = 0
+        self._active_taper_request: int = 0
 
         # Playback
         self.current_tracks: list[Track] = []
@@ -84,12 +85,20 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
     # ------------------------------------------------------------------
     @property
     def current_show(self) -> Show | None:
-        """Active show: taper if one is selected, otherwise year-level show."""
-        if self.available_tapers and 0 <= self.current_taper_index < len(self.available_tapers):
+        """Active show: selected taper only when it belongs to selected show."""
+        selected_show = (
+            self.available_shows[self.current_show_index]
+            if self.available_shows and 0 <= self.current_show_index < len(self.available_shows)
+            else None
+        )
+        if (
+            selected_show
+            and self.available_tapers
+            and 0 <= self.current_taper_index < len(self.available_tapers)
+            and self._tapers_for_show_identifier == selected_show.identifier
+        ):
             return self.available_tapers[self.current_taper_index]
-        if self.available_shows and 0 <= self.current_show_index < len(self.available_shows):
-            return self.available_shows[self.current_show_index]
-        return None
+        return selected_show
 
     @property
     def current_track(self) -> Track | None:
@@ -112,12 +121,19 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
             if self.current_show_index >= len(self.available_shows):
                 self.current_show_index = 0
 
-            # Auto-load tapers for the current show so the Taper dropdown is
-            # populated without requiring the user to manually re-select the show.
-            if self.available_shows and not self.available_tapers:
-                await self._async_load_tapers_for_show(
-                    self.available_shows[self.current_show_index]
-                )
+            # Do not auto-populate tapers on refresh/date changes.
+            # Keep an existing taper list only if it still belongs to the
+            # currently selected show; otherwise clear stale taper state.
+            selected_show = (
+                self.available_shows[self.current_show_index]
+                if self.available_shows and 0 <= self.current_show_index < len(self.available_shows)
+                else None
+            )
+            selected_identifier = selected_show.identifier if selected_show else None
+            if not selected_show or self._tapers_for_show_identifier != selected_identifier:
+                self.available_tapers = []
+                self.current_taper_index = 0
+                self._tapers_for_show_identifier = None
         except Exception as err:
             raise UpdateFailed(f"Error fetching shows: {err}") from err
 
@@ -135,16 +151,22 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
         self.selected_month = month
         self.selected_day = day
         self.current_show_index = 0
-        self.available_tapers = []
-        self.current_taper_index = 0
-        self.current_tracks = []
-        self.current_track_index = 0
+        self.reset_tapers_and_tracks()
         await self.async_refresh()
 
     async def async_today_in_history(self) -> None:
         """Jump to today's month/day."""
         today = _date.today()
         await self.async_set_date(today.month, today.day)
+
+    def reset_tapers_and_tracks(self) -> None:
+        """Clear taper/track state when band filters or date context change."""
+        self.available_tapers = []
+        self.current_taper_index = 0
+        self._tapers_for_show_identifier = None
+        self.current_tracks = []
+        self.current_track_index = 0
+        self.is_playing = False
 
     # ------------------------------------------------------------------
     # Show selection (level 1 — choose a year)
@@ -154,38 +176,82 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
         self.current_show_index = index
         self.current_tracks = []
         self.current_track_index = 0
-        if self.is_playing:
-            self.is_playing = False
+        self.is_playing = False
 
-        show = self.available_shows[index] if 0 <= index < len(self.available_shows) else None
-        if show:
-            await self._async_load_tapers_for_show(show)
-        else:
-            self.available_tapers = []
-            self.current_taper_index = 0
-
+        # Invalidate stale taper list immediately so old options disappear.
+        self.available_tapers = []
+        self.current_taper_index = 0
+        self._tapers_for_show_identifier = None
+        self._active_taper_request = 0
         self.async_update_listeners()
 
-    async def _async_load_tapers_for_show(self, show: Show) -> None:
+        await self.async_load_tapers_for_current_show()
+
+    async def async_load_tapers_for_current_show(self) -> None:
+        """Load tapers for the currently selected show."""
+        show = self.available_shows[self.current_show_index] if self.available_shows else None
+        if not show:
+            self.available_tapers = []
+            self.current_taper_index = 0
+            self._tapers_for_show_identifier = None
+            self._active_taper_request = 0
+            self.async_update_listeners()
+            return
+
+        self._taper_request_seq += 1
+        request_id = self._taper_request_seq
+        self._active_taper_request = request_id
+
+        # Clear stale values before reload, then pin to selected show while loading.
+        self.available_tapers = [show]
+        self.current_taper_index = 0
+        self._tapers_for_show_identifier = show.identifier
+        self.async_update_listeners()
+
+        await self._async_load_tapers_for_show(show, request_id)
+        self.async_update_listeners()
+
+    async def _async_load_tapers_for_show(self, show: Show, request_id: int) -> None:
         """Fetch all recordings for show's date, sorted by downloads (best first)."""
         try:
             d = _date.fromisoformat(show.date[:10])
         except (TypeError, ValueError, AttributeError):
-            self.available_tapers = []
-            self.current_taper_index = 0
+            if request_id == self._active_taper_request:
+                self.available_tapers = []
+                self.current_taper_index = 0
+                self._tapers_for_show_identifier = None
             return
 
-        tapers = await self.client.search_tapers_for_date(
-            collections=[show.collection],  # scope to this band only
-            year=d.year,
-            month=d.month,
-            day=d.day,
-            favored_taper=self.favored_taper,
+        try:
+            tapers = await self.client.search_tapers_for_date(
+                collections=[show.collection],  # scope to this band only
+                year=d.year,
+                month=d.month,
+                day=d.day,
+                favored_taper=self.favored_taper,
+            )
+        except Exception as err:  # defensive: never leave stale prior tapers in place
+            _LOGGER.warning("Failed loading tapers for %s (%s): %s", show.identifier, show.collection, err)
+            tapers = []
+
+        # If selection changed while this request was in flight, drop stale results.
+        selected_show = (
+            self.available_shows[self.current_show_index]
+            if self.available_shows and 0 <= self.current_show_index < len(self.available_shows)
+            else None
         )
+        if (
+            request_id != self._active_taper_request
+            or not selected_show
+            or selected_show.identifier != show.identifier
+        ):
+            return
+
         # Keep the selected show as a fallback so the taper selector is never empty
         # when archive.org returns sparse/partial metadata for this date.
         self.available_tapers = tapers or [show]
         self.current_taper_index = 0
+        self._tapers_for_show_identifier = show.identifier
 
     # ------------------------------------------------------------------
     # Taper selection (level 2 — choose a specific recording)
@@ -226,8 +292,10 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
         self.current_show_index = (self.current_show_index + 1) % len(self.available_shows)
         self.available_tapers = []
         self.current_taper_index = 0
+        self._tapers_for_show_identifier = None
         self.current_tracks = []
         self.current_track_index = 0
+        self.is_playing = False
         return True
 
     def prev_show(self) -> bool:
@@ -236,8 +304,10 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
         self.current_show_index = (self.current_show_index - 1) % len(self.available_shows)
         self.available_tapers = []
         self.current_taper_index = 0
+        self._tapers_for_show_identifier = None
         self.current_tracks = []
         self.current_track_index = 0
+        self.is_playing = False
         return True
 
     def next_track(self) -> bool:

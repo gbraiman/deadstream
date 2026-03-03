@@ -22,6 +22,7 @@ from .const import (
     DEFAULT_PLAY_LOSSLESS,
     DOMAIN,
 )
+from .utils import normalize_collections
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ class OptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="init",
             data_schema=_build_schema(
-                collections=current.get(CONF_COLLECTIONS, DEFAULT_COLLECTIONS),
+                collections=normalize_collections(current.get(CONF_COLLECTIONS, DEFAULT_COLLECTIONS)),
                 play_lossless=current.get(CONF_PLAY_LOSSLESS, DEFAULT_PLAY_LOSSLESS),
                 favored_taper=current.get(CONF_FAVORED_TAPER, DEFAULT_FAVORED_TAPER),
                 default_player=current.get(CONF_DEFAULT_PLAYER, ""),

@@ -12,6 +12,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import AVAILABLE_COLLECTIONS, COLLECTION_LABELS, CONF_COLLECTIONS, DEFAULT_COLLECTIONS, DOMAIN
 from .coordinator import DeadstreamCoordinator
+from .utils import normalize_collections
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -23,9 +24,9 @@ async def async_setup_entry(
 ) -> None:
     """Set up one switch per band that the user has configured."""
     coordinator: DeadstreamCoordinator = hass.data[DOMAIN][entry.entry_id]
-    configured = entry.options.get(
+    configured = normalize_collections(entry.options.get(
         CONF_COLLECTIONS, entry.data.get(CONF_COLLECTIONS, DEFAULT_COLLECTIONS)
-    )
+    ))
 
     # Remove stale entity registry entries for bands that are no longer configured.
     # Iterate directly over every registry entry for this config_entry_id — more
@@ -87,6 +88,7 @@ class CollectionSwitch(CoordinatorEntity[DeadstreamCoordinator], SwitchEntity):
     async def async_turn_on(self, **kwargs) -> None:
         if self._collection not in self.coordinator.collections:
             self.coordinator.collections = [*self.coordinator.collections, self._collection]
+            self.coordinator.reset_tapers_and_tracks()
             await self.coordinator.async_refresh()
         self.async_write_ha_state()
 
@@ -100,5 +102,6 @@ class CollectionSwitch(CoordinatorEntity[DeadstreamCoordinator], SwitchEntity):
         self.coordinator.collections = [
             c for c in self.coordinator.collections if c != self._collection
         ]
+        self.coordinator.reset_tapers_and_tracks()
         await self.coordinator.async_refresh()
         self.async_write_ha_state()
