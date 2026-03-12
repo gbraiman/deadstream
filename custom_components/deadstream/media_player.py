@@ -87,6 +87,10 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
         self._volume: float = 0.5
         self._track_listener_unsub = None
         self._active_track_url: str | None = None
+        # Incremented each time a new track is dispatched to the target player.
+        # _auto_advance tasks capture the value at scheduling time and bail if
+        # it has changed by the time they wake up (prevents stale advances).
+        self._advance_generation: int = 0
 
     @property
     def name(self) -> str:
@@ -175,6 +179,20 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
         if self.coordinator.current_tracks:
             attrs[ATTR_SETLIST] = [t.title for t in self.coordinator.current_tracks]
         return attrs
+
+    # ------------------------------------------------------------------
+    # Coordinator update hook
+    # ------------------------------------------------------------------
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Stop the physical target player when the user switches shows mid-play."""
+        if self.coordinator.show_changed:
+            self.coordinator.show_changed = False
+            self._cancel_track_listener()
+            self._active_track_url = None
+            self.hass.async_create_task(self._call_all_targets("media_stop", {}))
+        self.async_write_ha_state()
 
     # ------------------------------------------------------------------
     # Playback control
@@ -358,10 +376,16 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
         A short sleep guards against false positives: when play_media loads a
         new URL the target player briefly goes idle before buffering starts,
         which would otherwise look like a natural track end.
+
+        The generation counter ensures that if a new track was dispatched
+        while we were sleeping (e.g. the user switched shows), this stale
+        task exits without touching the listener or advancing the index.
         """
+        gen = self._advance_generation
         self._cancel_track_listener()
         await asyncio.sleep(2)
-        if not self.coordinator.is_playing:
+        # Bail if playback was stopped or a newer track was dispatched.
+        if not self.coordinator.is_playing or gen != self._advance_generation:
             return
         # If the target already recovered to playing, it wasn't a real track end.
         for eid in self.coordinator.target_players:
@@ -370,7 +394,7 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
                 self._register_track_listener()
                 return
         if self.coordinator.next_track():
-            await self._send_to_target_players()
+            await self._send_to_target_players()  # increments _advance_generation
             self.async_write_ha_state()
         else:
             self.coordinator.is_playing = False
@@ -394,8 +418,12 @@ class DeadstreamMediaPlayer(CoordinatorEntity[DeadstreamCoordinator], MediaPlaye
                 "No target player selected. Use the Target Player selector to choose a destination."
             )
             return
+        # Bump generation so any in-flight _auto_advance task knows it's stale.
+        self._advance_generation += 1
         if fresh_start:
-            # Stop the target first so it doesn't resume a previously paused track.
+            # Cancel the listener BEFORE stopping so the state transition to IDLE
+            # doesn't schedule a spurious _auto_advance for the old show.
+            self._cancel_track_listener()
             await self.hass.services.async_call(
                 "media_player", "media_stop", {"entity_id": targets}
             )

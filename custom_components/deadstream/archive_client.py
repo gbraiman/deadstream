@@ -350,11 +350,13 @@ class ArchiveClient:
 
         files = data.get("files", [])
         preferred = LOSSLESS_FORMATS + LOSSY_FORMATS if play_lossless else LOSSY_FORMATS + LOSSLESS_FORMATS
+        # Case-insensitive lookup: archive.org sometimes returns "FLAC", "24bit Flac", etc.
+        preferred_lower = {f.lower() for f in preferred}
 
         audio_by_stem: dict[str, dict[str, Any]] = {}
         for f in files:
             fmt = f.get("format", "")
-            if fmt not in preferred:
+            if fmt.lower() not in preferred_lower:
                 continue
             name = f.get("name", "")
             stem = re.sub(r"\.[^.]+$", "", name)
@@ -362,7 +364,14 @@ class ArchiveClient:
 
         tracks: list[Track] = []
         for track_num, (stem, formats) in enumerate(sorted(audio_by_stem.items()), start=1):
+            # Try preferred order (exact match first, then case-insensitive)
             chosen = next((formats[f] for f in preferred if f in formats), None)
+            if not chosen:
+                fmt_lower_map = {k.lower(): v for k, v in formats.items()}
+                chosen = next(
+                    (fmt_lower_map[f.lower()] for f in preferred if f.lower() in fmt_lower_map),
+                    None,
+                )
             if not chosen:
                 continue
             name = chosen.get("name", "")

@@ -171,7 +171,7 @@ class TaperSelect(_DeadstreamSelect):
     async def async_select_option(self, option: str) -> None:
         opts = self.options
         if option in opts:
-            self.coordinator.select_taper(opts.index(option))
+            await self.coordinator.select_taper(opts.index(option))
         self.async_write_ha_state()
 
     @callback

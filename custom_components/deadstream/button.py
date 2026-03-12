@@ -55,9 +55,17 @@ class NextShowButton(_DeadstreamButton):
         super().__init__(coordinator, entry, "next_show")
 
     async def async_press(self) -> None:
+        if self.coordinator.is_playing:
+            self.coordinator.show_changed = True
+            self.coordinator.is_playing = False
         self.coordinator.next_show()
-        self.coordinator.current_tracks = []
-        self.coordinator.current_track_index = 0
+        show = (
+            self.coordinator.available_shows[self.coordinator.current_show_index]
+            if self.coordinator.available_shows else None
+        )
+        if show:
+            await self.coordinator._async_load_tapers_for_show(show)
+            await self.coordinator.async_load_current_show()
         self.coordinator.async_update_listeners()
 
 
@@ -71,9 +79,17 @@ class PrevShowButton(_DeadstreamButton):
         super().__init__(coordinator, entry, "prev_show")
 
     async def async_press(self) -> None:
+        if self.coordinator.is_playing:
+            self.coordinator.show_changed = True
+            self.coordinator.is_playing = False
         self.coordinator.prev_show()
-        self.coordinator.current_tracks = []
-        self.coordinator.current_track_index = 0
+        show = (
+            self.coordinator.available_shows[self.coordinator.current_show_index]
+            if self.coordinator.available_shows else None
+        )
+        if show:
+            await self.coordinator._async_load_tapers_for_show(show)
+            await self.coordinator.async_load_current_show()
         self.coordinator.async_update_listeners()
 
 

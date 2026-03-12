@@ -99,17 +99,33 @@ def _register_services(hass: HomeAssistant) -> None:
     async def handle_next_show(call: ServiceCall) -> None:
         coordinator = _get_coordinator(hass)
         if coordinator:
+            if coordinator.is_playing:
+                coordinator.show_changed = True
+                coordinator.is_playing = False
             coordinator.next_show()
-            coordinator.current_tracks = []
-            coordinator.current_track_index = 0
+            show = (
+                coordinator.available_shows[coordinator.current_show_index]
+                if coordinator.available_shows else None
+            )
+            if show:
+                await coordinator._async_load_tapers_for_show(show)
+                await coordinator.async_load_current_show()
             coordinator.async_update_listeners()
 
     async def handle_prev_show(call: ServiceCall) -> None:
         coordinator = _get_coordinator(hass)
         if coordinator:
+            if coordinator.is_playing:
+                coordinator.show_changed = True
+                coordinator.is_playing = False
             coordinator.prev_show()
-            coordinator.current_tracks = []
-            coordinator.current_track_index = 0
+            show = (
+                coordinator.available_shows[coordinator.current_show_index]
+                if coordinator.available_shows else None
+            )
+            if show:
+                await coordinator._async_load_tapers_for_show(show)
+                await coordinator.async_load_current_show()
             coordinator.async_update_listeners()
 
     async def handle_random_show(call: ServiceCall) -> None:

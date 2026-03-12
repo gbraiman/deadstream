@@ -63,6 +63,9 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
         self.current_tracks: list[Track] = []
         self.current_track_index: int = 0
         self.is_playing: bool = False
+        # Set to True when the user switches shows/tapers mid-play so the media
+        # player entity knows to stop the physical target player.
+        self.show_changed: bool = False
 
         # Target player(s)
         self.target_players: list[str] = []
@@ -114,10 +117,13 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
 
             # Auto-load tapers for the current show so the Taper dropdown is
             # populated without requiring the user to manually re-select the show.
+            # Also pre-load tracks so Play works immediately without an extra round-trip.
             if self.available_shows and not self.available_tapers:
                 await self._async_load_tapers_for_show(
                     self.available_shows[self.current_show_index]
                 )
+                if not self.current_tracks:
+                    await self.async_load_current_show()
         except Exception as err:
             raise UpdateFailed(f"Error fetching shows: {err}") from err
 
@@ -150,16 +156,19 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
     # Show selection (level 1 — choose a year)
     # ------------------------------------------------------------------
     async def async_select_show(self, index: int) -> None:
-        """Select a year-level show and load all its taper recordings."""
+        """Select a year-level show, load its tapers, and pre-load the best taper's tracks."""
+        if self.is_playing:
+            self.show_changed = True
+            self.is_playing = False
         self.current_show_index = index
         self.current_tracks = []
         self.current_track_index = 0
-        if self.is_playing:
-            self.is_playing = False
 
         show = self.available_shows[index] if 0 <= index < len(self.available_shows) else None
         if show:
             await self._async_load_tapers_for_show(show)
+            # Pre-load tracks for the most popular (first) taper so Play works immediately.
+            await self.async_load_current_show()
         else:
             self.available_tapers = []
             self.current_taper_index = 0
@@ -190,13 +199,15 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
     # ------------------------------------------------------------------
     # Taper selection (level 2 — choose a specific recording)
     # ------------------------------------------------------------------
-    def select_taper(self, index: int) -> None:
-        """Select a specific recording by index. Stops playback."""
+    async def select_taper(self, index: int) -> None:
+        """Select a specific recording by index; pre-loads its tracks."""
+        if self.is_playing:
+            self.show_changed = True
+            self.is_playing = False
         self.current_taper_index = index
         self.current_tracks = []
         self.current_track_index = 0
-        if self.is_playing:
-            self.is_playing = False
+        await self.async_load_current_show()
         self.async_update_listeners()
 
     # ------------------------------------------------------------------
@@ -278,6 +289,9 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
             attempts += 1
 
         if shows:
+            if self.is_playing:
+                self.show_changed = True
+                self.is_playing = False
             self.selected_month = month
             self.selected_day = day
             self.available_shows = shows
@@ -286,6 +300,8 @@ class DeadstreamCoordinator(DataUpdateCoordinator):
             self.current_taper_index = 0
             self.current_tracks = []
             self.current_track_index = 0
+            await self._async_load_tapers_for_show(shows[0])
+            await self.async_load_current_show()
             self.async_update_listeners()
             return True
         return False
